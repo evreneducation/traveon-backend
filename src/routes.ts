@@ -1,8 +1,8 @@
 import { Router } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { storage } from "./storage";
-import { isAuthenticated } from "./index";
+import { storage } from "./storage.js";
+import { isAuthenticated } from "./index.js";
 import {
   insertTourPackageSchema,
   insertEventSchema,
@@ -15,7 +15,7 @@ import {
   type TourPackage,
   type Event,
   type Booking,
-} from "./schema";
+} from "./schema.js";
 import { z } from "zod";
 import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";

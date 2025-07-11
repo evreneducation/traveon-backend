@@ -26,8 +26,8 @@ import {
   type InsertTranslation,
   type Newsletter,
   type InsertNewsletter,
-} from "./schema";
-import { db } from "./db";
+} from "./schema.js";
+import { db } from "./db.js";
 import { eq, and, or, like, gte, lte, desc, asc, count, sql } from "drizzle-orm";
 
 // Utility function to handle Drizzle ORM type assertions
