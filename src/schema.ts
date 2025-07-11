@@ -178,6 +178,22 @@ export const newsletters = pgTable("newsletters", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Contact queries table
+export const contactQueries = pgTable("contact_queries", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"), // new, in_progress, resolved, closed
+  priority: text("priority").notNull().default("normal"), // low, normal, high, urgent
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   bookings: many(bookings),
@@ -213,6 +229,13 @@ export const bookingsRelations = relations(bookings, ({ one }) => ({
   }),
 }));
 
+export const contactQueriesRelations = relations(contactQueries, ({ one }) => ({
+  assignedTo: one(users, {
+    fields: [contactQueries.assignedTo],
+    references: [users.id],
+  }),
+}));
+
 // Zod schemas for validation
 export const insertUserSchema = createInsertSchema(users);
 export const upsertUserSchema = insertUserSchema.partial({ id: true });
@@ -225,6 +248,7 @@ export const insertPaymentSchema = createInsertSchema(payments);
 export const insertAvailabilitySchema = createInsertSchema(availability);
 export const insertTranslationSchema = createInsertSchema(translations);
 export const insertNewsletterSchema = createInsertSchema(newsletters);
+export const insertContactQuerySchema = createInsertSchema(contactQueries);
 
 // Type exports
 export type User = typeof users.$inferSelect;
@@ -253,4 +277,7 @@ export type Translation = typeof translations.$inferSelect;
 export type InsertTranslation = z.infer<typeof insertTranslationSchema>;
 
 export type Newsletter = typeof newsletters.$inferSelect;
-export type InsertNewsletter = z.infer<typeof insertNewsletterSchema>; 
+export type InsertNewsletter = z.infer<typeof insertNewsletterSchema>;
+
+export type ContactQuery = typeof contactQueries.$inferSelect;
+export type InsertContactQuery = z.infer<typeof insertContactQuerySchema>; 

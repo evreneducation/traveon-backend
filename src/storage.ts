@@ -8,6 +8,7 @@ import {
   payments,
   availability,
   translations,
+  contactQueries,
   type User,
   type UpsertUser,
   type TourPackage,
@@ -26,6 +27,8 @@ import {
   type InsertTranslation,
   type Newsletter,
   type InsertNewsletter,
+  type ContactQuery,
+  type InsertContactQuery,
 } from "./schema.js";
 import { db } from "./db.js";
 import { eq, and, or, like, gte, lte, desc, asc, count, sql } from "drizzle-orm";
@@ -103,6 +106,17 @@ export interface IStorage {
   // Newsletter operations
   subscribeNewsletter(email: string): Promise<Newsletter>;
   unsubscribeNewsletter(email: string): Promise<boolean>;
+  
+  // Contact query operations
+  getContactQueries(filters?: { 
+    status?: string; 
+    priority?: string;
+    assignedTo?: string;
+  }): Promise<ContactQuery[]>;
+  getContactQuery(id: number): Promise<ContactQuery | undefined>;
+  createContactQuery(query: InsertContactQuery): Promise<ContactQuery>;
+  updateContactQuery(id: number, query: Partial<InsertContactQuery>): Promise<ContactQuery | undefined>;
+  deleteContactQuery(id: number): Promise<boolean>;
   
   // Real-time availability
   checkAvailability(packageId: number, eventId: number, date: Date, slots: number): Promise<boolean>;
@@ -517,6 +531,63 @@ export class DatabaseStorage implements IStorage {
       .returning();
     
     return !!updated;
+  }
+
+  // Contact query operations
+  async getContactQueries(filters?: { 
+    status?: string; 
+    priority?: string;
+    assignedTo?: string;
+  }): Promise<ContactQuery[]> {
+    let query = db.select().from(contactQueries);
+    
+    const conditions = [];
+    
+    if (filters?.status) {
+      conditions.push(eq(contactQueries.status, filters.status));
+    }
+    
+    if (filters?.priority) {
+      conditions.push(eq(contactQueries.priority, filters.priority));
+    }
+    
+    if (filters?.assignedTo) {
+      conditions.push(eq(contactQueries.assignedTo, filters.assignedTo));
+    }
+    
+    if (conditions.length > 0) {
+      // @ts-ignore - Drizzle ORM type system limitation
+      query = query.where(and(...conditions));
+    }
+    
+    return await query.orderBy(desc(contactQueries.createdAt));
+  }
+
+  async getContactQuery(id: number): Promise<ContactQuery | undefined> {
+    const [query] = await db.select().from(contactQueries).where(eq(contactQueries.id, id));
+    return query;
+  }
+
+  async createContactQuery(queryData: InsertContactQuery): Promise<ContactQuery> {
+    const [newQuery] = await db.insert(contactQueries).values(queryData).returning();
+    if (!newQuery) {
+      throw new Error('Failed to create contact query');
+    }
+    return newQuery;
+  }
+
+  async updateContactQuery(id: number, queryData: Partial<InsertContactQuery>): Promise<ContactQuery | undefined> {
+    const [updated] = await db
+      .update(contactQueries)
+      .set({ ...queryData, updatedAt: new Date() } as any)
+      .where(eq(contactQueries.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteContactQuery(id: number): Promise<boolean> {
+    const [deleted] = await db.delete(contactQueries).where(eq(contactQueries.id, id)).returning();
+    return !!deleted;
   }
 
   // Real-time availability

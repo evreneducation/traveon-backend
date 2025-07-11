@@ -3,6 +3,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import { storage } from "./storage.js";
 import { isAuthenticated } from "./index.js";
+import { EmailService } from "./emailService.js";
 import {
   insertTourPackageSchema,
   insertEventSchema,
@@ -12,6 +13,7 @@ import {
   insertAvailabilitySchema,
   insertTranslationSchema,
   insertNewsletterSchema,
+  insertContactQuerySchema,
   type TourPackage,
   type Event,
   type Booking,
@@ -696,6 +698,32 @@ export function registerRoutes() {
     }
   });
 
+  // Contact Query routes
+  router.post("/contact-queries", async (req, res) => {
+    try {
+      const validated = insertContactQuerySchema.parse(req.body);
+      const query = await storage.createContactQuery(validated);
+
+      // Send email notifications
+      try {
+        await EmailService.sendContactQueryEmails(query);
+      } catch (emailError) {
+        console.error('Failed to send emails:', emailError);
+        // Don't fail the request if emails fail
+      }
+
+      return res.status(201).json(query);
+    } catch (error) {
+      console.error("Error creating contact query:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create contact query" });
+    }
+  });
+
   // Admin dashboard routes
   router.get("/admin/dashboard", isAuthenticated, async (req: any, res) => {
     try {
@@ -707,11 +735,12 @@ export function registerRoutes() {
       }
 
       // Get statistics
-      const [packages, events, bookings, reviews] = await Promise.all([
+      const [packages, events, bookings, reviews, contactQueries] = await Promise.all([
         storage.getTourPackages(),
         storage.getEvents(),
         storage.getBookings(),
         storage.getReviews(),
+        storage.getContactQueries(),
       ]);
 
       const stats = {
@@ -719,16 +748,129 @@ export function registerRoutes() {
         totalEvents: events.length,
         totalBookings: bookings.length,
         totalReviews: reviews.length,
+        totalContactQueries: contactQueries.length,
         activePackages: packages.filter(p => p.active).length,
         activeEvents: events.filter(e => e.active).length,
         pendingBookings: bookings.filter(b => b.status === "pending").length,
         confirmedBookings: bookings.filter(b => b.status === "confirmed").length,
+        newContactQueries: contactQueries.filter(q => q.status === "new").length,
+        urgentContactQueries: contactQueries.filter(q => q.priority === "urgent").length,
       };
 
       return res.json(stats);
     } catch (error) {
       console.error("Error fetching admin dashboard:", error);
       return res.status(500).json({ message: "Failed to fetch admin dashboard" });
+    }
+  });
+
+  // Admin contact queries routes
+  router.get("/admin/contact-queries", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { status, priority, assignedTo } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (priority) filters.priority = priority as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+
+      const queries = await storage.getContactQueries(filters);
+      return res.json(queries);
+    } catch (error) {
+      console.error("Error fetching contact queries:", error);
+      return res.status(500).json({ message: "Failed to fetch contact queries" });
+    }
+  });
+
+  router.get("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid query ID" });
+      }
+
+      const query = await storage.getContactQuery(id);
+      if (!query) {
+        return res.status(404).json({ message: "Contact query not found" });
+      }
+
+      return res.json(query);
+    } catch (error) {
+      console.error("Error fetching contact query:", error);
+      return res.status(500).json({ message: "Failed to fetch contact query" });
+    }
+  });
+
+  router.put("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid query ID" });
+      }
+
+      const validated = insertContactQuerySchema.partial().parse(req.body);
+      const query = await storage.updateContactQuery(id, validated);
+      
+      if (!query) {
+        return res.status(404).json({ message: "Contact query not found" });
+      }
+
+      return res.json(query);
+    } catch (error) {
+      console.error("Error updating contact query:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to update contact query" });
+    }
+  });
+
+  router.delete("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid query ID" });
+      }
+
+      const success = await storage.deleteContactQuery(id);
+      if (!success) {
+        return res.status(404).json({ message: "Contact query not found" });
+      }
+
+      return res.json({ message: "Contact query deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting contact query:", error);
+      return res.status(500).json({ message: "Failed to delete contact query" });
     }
   });
 
