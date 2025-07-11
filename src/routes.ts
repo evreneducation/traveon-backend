@@ -79,6 +79,21 @@ export function registerRoutes() {
     }
   });
 
+  router.get('/auth/debug', (req, res) => {
+    res.json({
+      isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
+      user: req.user || null,
+      sessionID: req.sessionID,
+      session: req.session,
+      headers: {
+        'user-agent': req.headers['user-agent'],
+        'origin': req.headers['origin'],
+        'referer': req.headers['referer'],
+        'cookie': req.headers['cookie'] ? 'present' : 'missing'
+      }
+    });
+  });
+
   router.get('/auth/admin', (req, res) => {
     if (req.isAuthenticated && req.isAuthenticated() && req.user && (req.user as any).role === 'admin') {
       res.json({ isAdmin: true });
