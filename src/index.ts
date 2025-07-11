@@ -1,13 +1,13 @@
 import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes.js";
 import session from 'express-session';
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import type { Profile, VerifyCallback } from 'passport-google-oauth20';
-import { storage } from './storage';
-import type { User, UpsertUser } from './schema';
+import { storage } from './storage.js';
+import type { User, UpsertUser } from './schema.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
