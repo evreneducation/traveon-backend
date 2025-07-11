@@ -28,17 +28,24 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 app.set('trust proxy', 1);
+
+// Environment-aware session configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const isDevelopment = process.env.NODE_ENV === 'development';
+
 // Add session middleware
 app.use(session({
   secret: process.env.SESSION_SECRET || 'changeme',
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: true,
+    secure: isProduction, // Only use secure cookies in production
     httpOnly: true,
-    sameSite: 'none',
-    maxAge: 24 * 60 * 60 * 1000
+    sameSite: isProduction ? 'none' : 'lax', // Use 'none' only in production for cross-origin
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    domain: isProduction ? undefined : undefined, // Let the browser handle domain
   },
+  name: 'traveon.sid', // Custom session name
 }));
 
 // Initialize Passport
@@ -175,6 +182,14 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      
+      // Add authentication info for auth-related endpoints
+      if (path.includes('/auth/')) {
+        const isAuth = req.isAuthenticated ? req.isAuthenticated() : false;
+        const userId = (req.user as any)?.id || 'none';
+        logLine += ` [Auth: ${isAuth}, User: ${userId}]`;
+      }
+      
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
