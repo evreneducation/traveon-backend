@@ -150,6 +150,109 @@ export function registerRoutes() {
     res.json(response);
   });
 
+  // Special endpoint for post-OAuth session establishment
+  router.get('/auth/verify-session/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    
+    console.log('Session verification request for:', sessionId);
+    console.log('Current session ID:', req.sessionID);
+    console.log('Is authenticated:', req.isAuthenticated ? req.isAuthenticated() : false);
+    console.log('Headers:', {
+      'cookie': req.headers['cookie'] ? 'present' : 'missing',
+      'origin': req.headers['origin']
+    });
+
+    // If the session IDs match and user is authenticated, return user data
+    if (req.sessionID === sessionId && req.isAuthenticated && req.isAuthenticated() && req.user) {
+      res.json({
+        success: true,
+        user: req.user,
+        sessionId: req.sessionID,
+        message: 'Session verified successfully'
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        sessionId: req.sessionID,
+        requestedSessionId: sessionId,
+        isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
+        message: 'Session verification failed'
+      });
+    }
+  });
+
+  // Simple token storage (in production, use Redis or database)
+  const activeTokens = new Map<string, { userId: string, expires: number }>();
+
+  // Token-based auth endpoint - generates simple token for authenticated users
+  router.get('/auth/token', (req, res) => {
+    console.log('Token request - Session ID:', req.sessionID);
+    console.log('Token request - Is authenticated:', req.isAuthenticated ? req.isAuthenticated() : false);
+    console.log('Token request - User:', req.user);
+    
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      // Generate simple token
+      const token = crypto.randomBytes(32).toString('hex');
+      const expires = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+      
+      // Store token
+      activeTokens.set(token, {
+        userId: (req.user as any).id,
+        expires
+      });
+      
+      res.json({
+        success: true,
+        token,
+        user: req.user,
+        message: 'Token generated successfully'
+      });
+    } else {
+      res.status(401).json({
+        success: false,
+        message: 'Not authenticated - cannot generate token'
+      });
+    }
+  });
+
+  // Verify token endpoint
+  router.get('/auth/verify-token', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
+    
+    const tokenData = activeTokens.get(token);
+    
+    if (!tokenData) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+    
+    if (tokenData.expires < Date.now()) {
+      activeTokens.delete(token);
+      return res.status(401).json({ success: false, message: 'Token expired' });
+    }
+    
+    try {
+      const user = await storage.getUser(tokenData.userId);
+      if (user) {
+        res.json({
+          success: true,
+          user,
+          message: 'Token is valid'
+        });
+      } else {
+        activeTokens.delete(token);
+        res.status(401).json({ success: false, message: 'User not found' });
+      }
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      res.status(500).json({ success: false, message: 'Error fetching user' });
+    }
+  });
+
   // Tour packages routes
   router.get("/packages", async (req, res) => {
     try {
