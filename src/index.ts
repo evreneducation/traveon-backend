@@ -128,7 +128,22 @@ app.post("/auth/signup", async (req, res) => {
 
   req.login(user, (err) => {
     if (err) return res.status(500).json({ message: "Login failed" });
-    return res.json({ user });
+    
+    // Generate token for the newly registered user
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+    
+    // Get the activeTokens map from global storage
+    const activeTokens = (global as any).activeTokens || new Map();
+    (global as any).activeTokens = activeTokens;
+    
+    // Store token
+    activeTokens.set(token, {
+      userId: user.id,
+      expires
+    });
+    
+    return res.json({ user, token });
   });
 });
 
@@ -192,7 +207,21 @@ passport.use(
 
 // Auth routes
 app.post("/auth/login", passport.authenticate("local"), (req, res) => {
-  res.json({ message: "Logged in", user: req.user });
+  // Generate token for the logged-in user
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+  
+  // Get the activeTokens map from global storage
+  const activeTokens = (global as any).activeTokens || new Map();
+  (global as any).activeTokens = activeTokens;
+  
+  // Store token
+  activeTokens.set(token, {
+    userId: (req.user as any).id,
+    expires
+  });
+  
+  res.json({ message: "Logged in", user: req.user, token });
 });
 
 app.get(
@@ -256,10 +285,23 @@ app.get(
 );
 
 app.get("/auth/logout", (req, res, next) => {
+  const userId = (req.user as any)?.id;
+  
   req.logout(function (err) {
     if (err) {
       return next(err);
     }
+    
+    // Clear any active tokens for this user
+    if (userId) {
+      const activeTokens = (global as any).activeTokens || new Map();
+      for (const [token, data] of activeTokens.entries()) {
+        if (data.userId === userId) {
+          activeTokens.delete(token);
+        }
+      }
+    }
+    
     res.json({ message: "Logged out successfully" });
   });
 });

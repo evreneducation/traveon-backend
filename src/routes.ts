@@ -267,6 +267,34 @@ export function registerRoutes() {
     }
   });
 
+  // Logout endpoint - clears tokens
+  router.post('/auth/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    
+    if (token) {
+      const tokenData = activeTokens.get(token);
+      if (tokenData) {
+        // Clear this specific token
+        activeTokens.delete(token);
+        
+        // Clear all tokens for this user
+        const userId = tokenData.userId;
+        for (const [t, data] of activeTokens.entries()) {
+          if (data.userId === userId) {
+            activeTokens.delete(t);
+          }
+        }
+        
+        res.json({ success: true, message: 'Logged out successfully' });
+      } else {
+        res.json({ success: true, message: 'Token not found, already logged out' });
+      }
+    } else {
+      res.json({ success: true, message: 'No token provided, already logged out' });
+    }
+  });
+
   // Tour packages routes
   router.get("/packages", async (req, res) => {
     try {
