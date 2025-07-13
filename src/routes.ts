@@ -72,6 +72,17 @@ export function registerRoutes() {
 
   // Auth routes
   router.get('/auth/user', (req, res) => {
+    console.log('Auth user request - Session ID:', req.sessionID);
+    console.log('Auth user request - Is authenticated:', req.isAuthenticated ? req.isAuthenticated() : false);
+    console.log('Auth user request - User:', req.user);
+    console.log('Auth user request - Session:', req.session);
+    console.log('Auth user request - Headers:', {
+      'user-agent': req.headers['user-agent'],
+      'origin': req.headers['origin'],
+      'referer': req.headers['referer'],
+      'cookie': req.headers['cookie'] ? 'present' : 'missing'
+    });
+    
     if (req.isAuthenticated && req.isAuthenticated() && req.user) {
       res.json(req.user);
     } else {
