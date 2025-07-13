@@ -111,7 +111,7 @@ passport.use(new LocalStrategy(
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID || '',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  callbackURL: '/auth/google/callback',
+  callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/auth/google/callback`,
 }, async (
   accessToken: string,
   refreshToken: string,
@@ -144,10 +144,10 @@ app.post('/auth/login', passport.authenticate('local'), (req, res) => {
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
 app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/' }),
+  passport.authenticate('google', { failureRedirect: process.env.FRONTEND_URL || 'http://localhost:5173' }),
   (req, res) => {
-    // Successful authentication
-    res.redirect('/');
+    // Successful authentication - redirect to frontend
+    res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
   }
 );
 
