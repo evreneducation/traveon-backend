@@ -147,8 +147,11 @@ app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'em
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: process.env.FRONTEND_URL || 'http://localhost:5173' }),
   (req, res) => {
-    // Successful authentication - redirect to frontend
-    res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+    // Force session save before redirect
+    req.session.save(() => {
+      // Successful authentication - redirect to frontend
+      res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+    });
   }
 );
 
