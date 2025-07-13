@@ -80,57 +80,17 @@ export function registerRoutes() {
   });
 
   router.get('/auth/debug', (req, res) => {
-    const userAgent = req.headers['user-agent'] || '';
-    const isIPhone = /iPhone|iPad|iPod/.test(userAgent) && /Safari/.test(userAgent);
-    
     res.json({
       isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
       user: req.user || null,
       sessionID: req.sessionID,
       session: req.session,
-      device: {
-        userAgent,
-        isIPhone,
-        isIOS: /iPhone|iPad|iPod/.test(userAgent),
-        isSafari: /Safari/.test(userAgent),
-        isChrome: /Chrome/.test(userAgent),
-      },
       headers: {
         'user-agent': req.headers['user-agent'],
         'origin': req.headers['origin'],
         'referer': req.headers['referer'],
-        'cookie': req.headers['cookie'] ? 'present' : 'missing',
-        'accept': req.headers['accept'],
-        'accept-language': req.headers['accept-language'],
-        'cache-control': req.headers['cache-control'],
-      },
-      cookies: req.cookies,
-      sessionCookie: req.headers['cookie']?.includes('traveon.sid') ? 'present' : 'missing'
-    });
-  });
-
-  // iPhone-specific auth test endpoint
-  router.get('/auth/iphone-test', (req, res) => {
-    const userAgent = req.headers['user-agent'] || '';
-    const isIPhone = /iPhone|iPad|iPod/.test(userAgent) && /Safari/.test(userAgent);
-    
-    if (isIPhone) {
-      console.log('📱 iPhone auth test endpoint hit');
-    }
-    
-    res.json({
-      message: 'iPhone auth test endpoint',
-      isIPhone,
-      timestamp: new Date().toISOString(),
-      sessionExists: !!req.session,
-      authenticated: req.isAuthenticated ? req.isAuthenticated() : false,
-      userAgent,
-      recommendations: isIPhone ? [
-        'Try clearing Safari cache and cookies',
-        'Disable Private Browsing mode',
-        'Check Safari settings for cross-site tracking',
-        'Try using Chrome on iPhone as alternative'
-      ] : []
+        'cookie': req.headers['cookie'] ? 'present' : 'missing'
+      }
     });
   });
 
