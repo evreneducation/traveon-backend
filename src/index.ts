@@ -123,6 +123,7 @@ passport.use(new GoogleStrategy({
     const upsertData: UpsertUser = {
       id: profile.id,
       email: profile.emails?.[0]?.value || '',
+      password: null, // Explicitly set password to null for Google users
       firstName: profile.name?.givenName || '',
       lastName: profile.name?.familyName || '',
       profileImageUrl: profile.photos?.[0]?.value || '',
