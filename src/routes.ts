@@ -182,7 +182,21 @@ export function registerRoutes() {
   });
 
   // Simple token storage (in production, use Redis or database)
-  const activeTokens = new Map<string, { userId: string, expires: number }>();
+  // Use global storage so tokens created in OAuth callback can be accessed here
+  const activeTokens = (global as any).activeTokens || new Map<string, { userId: string, expires: number }>();
+  (global as any).activeTokens = activeTokens;
+
+  // Clean up expired tokens periodically
+  if (!(global as any).tokenCleanupInterval) {
+    (global as any).tokenCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [token, data] of activeTokens.entries()) {
+        if (data.expires < now) {
+          activeTokens.delete(token);
+        }
+      }
+    }, 60000); // Clean up every minute
+  }
 
   // Token-based auth endpoint - generates simple token for authenticated users
   router.get('/auth/token', (req, res) => {

@@ -14,6 +14,7 @@ import bcrypt from "bcrypt";
 import cors from "cors";
 import pgSession from 'connect-pg-simple';
 import { Pool } from 'pg';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -204,34 +205,53 @@ app.get(
   passport.authenticate("google", {
     failureRedirect: process.env.FRONTEND_URL || "http://localhost:5173",
   }),
-  (req, res) => {
+  async (req, res) => {
     // Log authentication status for debugging
     console.log('Google OAuth callback - User authenticated:', req.isAuthenticated());
     console.log('Google OAuth callback - User:', req.user);
     console.log('Google OAuth callback - Session ID:', req.sessionID);
     
-    // Force session save before redirect
-    req.session.save((err) => {
-      if (err) {
-        console.error('Session save error:', err);
-        return res.redirect(process.env.FRONTEND_URL || "http://localhost:5173");
+    if (req.isAuthenticated() && req.user) {
+      try {
+        // Generate token directly in the callback
+        const token = crypto.randomBytes(32).toString('hex');
+        const expires = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+        
+        // Get the activeTokens map from routes (we'll need to move this to a shared location)
+        // For now, we'll create a simple token storage here
+        const activeTokens = (global as any).activeTokens || new Map();
+        (global as any).activeTokens = activeTokens;
+        
+        // Store token
+        activeTokens.set(token, {
+          userId: (req.user as any).id,
+          expires
+        });
+        
+        console.log('Token generated for OAuth user:', token);
+        
+        // Force session save before redirect
+        req.session.save((err) => {
+          if (err) {
+            console.error('Session save error:', err);
+            return res.redirect(process.env.FRONTEND_URL || "http://localhost:5173");
+          }
+          
+          console.log('Session saved successfully');
+          
+          // Successful authentication - redirect to frontend with token
+          const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+          res.redirect(`${frontendUrl}?auth=success&token=${token}`);
+        });
+      } catch (error) {
+        console.error('Error generating token in OAuth callback:', error);
+        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+        res.redirect(`${frontendUrl}?auth=error`);
       }
-      
-      console.log('Session saved successfully');
-      
-      // Try to explicitly set the session cookie with cross-domain settings
-      res.cookie('traveon.sid', req.sessionID, {
-        secure: true,
-        httpOnly: true,
-        sameSite: 'none',
-        maxAge: 24 * 60 * 60 * 1000,
-        domain: undefined
-      });
-      
-      // Successful authentication - redirect to frontend with a success parameter
+    } else {
       const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-      res.redirect(`${frontendUrl}?auth=success&session=${req.sessionID}`);
-    });
+      res.redirect(`${frontendUrl}?auth=error`);
+    }
   }
 );
 
