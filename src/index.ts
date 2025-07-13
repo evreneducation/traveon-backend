@@ -205,8 +205,19 @@ app.get(
     failureRedirect: process.env.FRONTEND_URL || "http://localhost:5173",
   }),
   (req, res) => {
+    // Log authentication status for debugging
+    console.log('Google OAuth callback - User authenticated:', req.isAuthenticated());
+    console.log('Google OAuth callback - User:', req.user);
+    console.log('Google OAuth callback - Session ID:', req.sessionID);
+    
     // Force session save before redirect
-    req.session.save(() => {
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.redirect(process.env.FRONTEND_URL || "http://localhost:5173");
+      }
+      
+      console.log('Session saved successfully');
       // Successful authentication - redirect to frontend
       res.redirect(process.env.FRONTEND_URL || "http://localhost:5173");
     });
