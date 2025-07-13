@@ -113,6 +113,43 @@ export function registerRoutes() {
     }
   });
 
+  // Test endpoint to manually set a cookie and test cross-domain
+  router.get('/auth/test-cookie', (req, res) => {
+    // Set a test cookie
+    res.cookie('test-cookie', 'test-value', {
+      secure: true,
+      httpOnly: false, // Allow JS access for testing
+      sameSite: 'none',
+      maxAge: 60000, // 1 minute
+    });
+    
+    res.json({ 
+      message: 'Test cookie set',
+      sessionId: req.sessionID,
+      cookies: req.headers.cookie || 'no cookies received'
+    });
+  });
+
+  // Alternative auth endpoint that returns user data with session info
+  router.get('/auth/user-with-session', (req, res) => {
+    console.log('User with session request - Session ID:', req.sessionID);
+    console.log('User with session request - Is authenticated:', req.isAuthenticated ? req.isAuthenticated() : false);
+    console.log('User with session request - Headers:', {
+      'cookie': req.headers['cookie'] ? 'present' : 'missing',
+      'origin': req.headers['origin']
+    });
+
+    const response = {
+      sessionId: req.sessionID,
+      isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
+      user: req.user || null,
+      cookiesReceived: req.headers['cookie'] ? 'yes' : 'no',
+      origin: req.headers['origin']
+    };
+
+    res.json(response);
+  });
+
   // Tour packages routes
   router.get("/packages", async (req, res) => {
     try {

@@ -78,11 +78,11 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: isProduction, // Only use secure cookies in production
+      secure: true, // Always use secure cookies for cross-domain
       httpOnly: true,
-      sameSite: isProduction ? 'none' : 'lax', // Use 'none' only in production for cross-origin
+      sameSite: 'none', // Always use 'none' for cross-domain cookies
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      domain: isProduction ? undefined : undefined, // Let the browser handle domain
+      domain: undefined, // Let the browser handle domain
     },
     name: 'traveon.sid', // Custom session name
   })
@@ -218,8 +218,19 @@ app.get(
       }
       
       console.log('Session saved successfully');
-      // Successful authentication - redirect to frontend
-      res.redirect(process.env.FRONTEND_URL || "http://localhost:5173");
+      
+      // Try to explicitly set the session cookie with cross-domain settings
+      res.cookie('traveon.sid', req.sessionID, {
+        secure: true,
+        httpOnly: true,
+        sameSite: 'none',
+        maxAge: 24 * 60 * 60 * 1000,
+        domain: undefined
+      });
+      
+      // Successful authentication - redirect to frontend with a success parameter
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+      res.redirect(`${frontendUrl}?auth=success&session=${req.sessionID}`);
     });
   }
 );
