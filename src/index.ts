@@ -33,20 +33,40 @@ app.set('trust proxy', 1);
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-// Add session middleware
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'changeme',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { 
-    secure: isProduction, // Only use secure cookies in production
-    httpOnly: true,
-    sameSite: isProduction ? 'none' : 'lax', // Use 'none' only in production for cross-origin
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    domain: isProduction ? undefined : undefined, // Let the browser handle domain
-  },
-  name: 'traveon.sid', // Custom session name
-}));
+// iPhone/Safari detection helper
+function isIPhoneSafari(userAgent: string): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) && /Safari/.test(userAgent);
+}
+
+// Dynamic session middleware that adjusts for iPhone Safari
+app.use((req, res, next) => {
+  const userAgent = req.get('User-Agent') || '';
+  const isIPhone = isIPhoneSafari(userAgent);
+  
+  // Log iPhone detection for debugging
+  if (isIPhone) {
+    console.log(`📱 iPhone Safari detected: ${userAgent}`);
+  }
+  
+  // Create session configuration based on device
+  const sessionConfig = {
+    secret: process.env.SESSION_SECRET || 'changeme',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: isProduction, // Always use secure in production
+      httpOnly: true,
+      // iPhone Safari specific settings
+      sameSite: isIPhone ? 'lax' as const : (isProduction ? 'none' as const : 'lax' as const),
+      maxAge: isIPhone ? 12 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // 12 hours for iPhone, 24 for others
+      domain: undefined, // Let browser handle domain
+    },
+    name: 'traveon.sid',
+  };
+  
+  // Apply session middleware with dynamic config
+  session(sessionConfig)(req, res, next);
+});
 
 // Initialize Passport
 app.use(passport.initialize());
