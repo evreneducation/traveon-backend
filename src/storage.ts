@@ -3,6 +3,7 @@ import {
   tourPackages,
   events,
   bookings,
+  travelers,
   newsletters,
   reviews,
   payments,
@@ -17,6 +18,8 @@ import {
   type InsertEvent,
   type Booking,
   type InsertBooking,
+  type Traveler,
+  type InsertTraveler,
   type Review,
   type InsertReview,
   type Payment,
@@ -79,6 +82,15 @@ export interface IStorage {
   getBooking(id: number): Promise<Booking | undefined>;
   createBooking(booking: InsertBooking): Promise<Booking>;
   updateBooking(id: number, booking: Partial<InsertBooking>): Promise<Booking | undefined>;
+  
+  // Traveler operations
+  getTravelers(bookingId: number): Promise<Traveler[]>;
+  getTraveler(id: number): Promise<Traveler | undefined>;
+  createTraveler(traveler: InsertTraveler): Promise<Traveler>;
+  createTravelers(travelers: InsertTraveler[]): Promise<Traveler[]>;
+  updateTraveler(id: number, traveler: Partial<InsertTraveler>): Promise<Traveler | undefined>;
+  deleteTraveler(id: number): Promise<boolean>;
+  deleteTravelersByBooking(bookingId: number): Promise<boolean>;
   
   // Review operations
   getReviews(packageId?: number, eventId?: number): Promise<Review[]>;
@@ -341,6 +353,51 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bookings.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Traveler operations
+  async getTravelers(bookingId: number): Promise<Traveler[]> {
+    return await db.select().from(travelers).where(eq(travelers.bookingId, bookingId)).orderBy(asc(travelers.id));
+  }
+
+  async getTraveler(id: number): Promise<Traveler | undefined> {
+    const [traveler] = await db.select().from(travelers).where(eq(travelers.id, id));
+    return traveler;
+  }
+
+  async createTraveler(traveler: InsertTraveler): Promise<Traveler> {
+    const [newTraveler] = await db.insert(travelers).values(traveler).returning();
+    if (!newTraveler) {
+      throw new Error('Failed to create traveler');
+    }
+    return newTraveler;
+  }
+
+  async createTravelers(travelersData: InsertTraveler[]): Promise<Traveler[]> {
+    if (travelersData.length === 0) {
+      return [];
+    }
+    const newTravelers = await db.insert(travelers).values(travelersData).returning();
+    return newTravelers;
+  }
+
+  async updateTraveler(id: number, traveler: Partial<InsertTraveler>): Promise<Traveler | undefined> {
+    const [updated] = await db
+      .update(travelers)
+      .set({ ...traveler, updatedAt: new Date() } as any)
+      .where(eq(travelers.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteTraveler(id: number): Promise<boolean> {
+    const result = await db.delete(travelers).where(eq(travelers.id, id));
+    return (result as any).rowCount > 0;
+  }
+
+  async deleteTravelersByBooking(bookingId: number): Promise<boolean> {
+    const result = await db.delete(travelers).where(eq(travelers.bookingId, bookingId));
+    return (result as any).rowCount >= 0; // Return true even if no travelers exist
   }
 
   // Review operations

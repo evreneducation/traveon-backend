@@ -8,6 +8,7 @@ import {
   insertTourPackageSchema,
   insertEventSchema,
   insertBookingSchema,
+  insertTravelerSchema,
   insertReviewSchema,
   insertPaymentSchema,
   insertAvailabilitySchema,
@@ -17,6 +18,8 @@ import {
   type TourPackage,
   type Event,
   type Booking,
+  type Traveler,
+  type InsertTraveler,
 } from "./schema.js";
 import { z } from "zod";
 import multer from "multer";
@@ -587,19 +590,38 @@ export function registerRoutes() {
   router.post("/bookings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const { travelers: travelersData, ...bookingData } = req.body;
+      
       const validated = insertBookingSchema.parse({
-        ...req.body,
+        ...bookingData,
         userId,
       });
 
+      // Check passenger count against package limits
+      const { packageId, eventId, travelDate, adults, children = 0 } = validated;
+      const totalGuests = adults + children;
+      
+      if (packageId) {
+        // Get package details to check maxPassengerCount
+        const pkg = await storage.getTourPackage(packageId);
+        if (!pkg) {
+          return res.status(404).json({ message: "Package not found" });
+        }
+        
+        if (pkg.maxPassengerCount && totalGuests > pkg.maxPassengerCount) {
+          return res.status(400).json({ 
+            message: `Maximum ${pkg.maxPassengerCount} passengers allowed for this package. You selected ${totalGuests}.` 
+          });
+        }
+      }
+      
       // Check availability before creating booking
-      const { packageId, eventId, checkInDate, guestCount } = validated;
-      if (packageId && checkInDate) {
+      if (packageId && travelDate) {
         const available = await storage.checkAvailability(
           packageId,
           0,
-          new Date(checkInDate),
-          guestCount,
+          new Date(travelDate),
+          totalGuests,
         );
         if (!available) {
           return res
@@ -608,19 +630,39 @@ export function registerRoutes() {
         }
       }
 
+      // Create the booking
       const booking = await storage.createBooking(validated);
 
+      // Create traveler records if provided
+      if (travelersData && Array.isArray(travelersData) && travelersData.length > 0) {
+        const validatedTravelers = travelersData.map((traveler: any) => 
+          insertTravelerSchema.parse({
+            ...traveler,
+            bookingId: booking.id,
+          })
+        );
+        
+        await storage.createTravelers(validatedTravelers);
+      }
+
       // Reserve slots
-      if (packageId && checkInDate) {
+      if (packageId && travelDate) {
         await storage.reserveSlots(
           packageId,
           0,
-          new Date(checkInDate),
-          guestCount,
+          new Date(travelDate),
+          totalGuests,
         );
       }
 
-      return res.status(201).json(booking);
+      // Fetch the complete booking with travelers
+      const completeBooking = {
+        ...booking,
+        travelers: travelersData && Array.isArray(travelersData) ? 
+          await storage.getTravelers(booking.id) : []
+      };
+
+      return res.status(201).json(completeBooking);
     } catch (error) {
       console.error("Error creating booking:", error);
       if (error instanceof z.ZodError) {
@@ -629,6 +671,147 @@ export function registerRoutes() {
           .json({ message: "Validation error", errors: error.errors });
       }
       return res.status(500).json({ message: "Failed to create booking" });
+    }
+  });
+
+  // Traveler routes
+  router.get("/bookings/:bookingId/travelers", isAuthenticated, async (req: any, res) => {
+    try {
+      const bookingId = parseInt(req.params.bookingId);
+      if (isNaN(bookingId)) {
+        return res.status(400).json({ message: "Invalid booking ID" });
+      }
+
+      // Verify booking belongs to user or user is admin
+      const booking = await storage.getBooking(bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (booking.userId !== userId && user?.role !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const travelers = await storage.getTravelers(bookingId);
+      return res.json(travelers);
+    } catch (error) {
+      console.error("Error fetching travelers:", error);
+      return res.status(500).json({ message: "Failed to fetch travelers" });
+    }
+  });
+
+  router.post("/bookings/:bookingId/travelers", isAuthenticated, async (req: any, res) => {
+    try {
+      const bookingId = parseInt(req.params.bookingId);
+      if (isNaN(bookingId)) {
+        return res.status(400).json({ message: "Invalid booking ID" });
+      }
+
+      // Verify booking belongs to user or user is admin
+      const booking = await storage.getBooking(bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (booking.userId !== userId && user?.role !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const validated = insertTravelerSchema.parse({
+        ...req.body,
+        bookingId,
+      });
+
+      const traveler = await storage.createTraveler(validated);
+      return res.status(201).json(traveler);
+    } catch (error) {
+      console.error("Error creating traveler:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create traveler" });
+    }
+  });
+
+  router.put("/travelers/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const travelerId = parseInt(req.params.id);
+      if (isNaN(travelerId)) {
+        return res.status(400).json({ message: "Invalid traveler ID" });
+      }
+
+      // Verify traveler exists and belongs to user's booking
+      const traveler = await storage.getTraveler(travelerId);
+      if (!traveler) {
+        return res.status(404).json({ message: "Traveler not found" });
+      }
+
+      const booking = await storage.getBooking(traveler.bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: "Associated booking not found" });
+      }
+
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (booking.userId !== userId && user?.role !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updatedTraveler = await storage.updateTraveler(travelerId, req.body);
+      if (!updatedTraveler) {
+        return res.status(404).json({ message: "Traveler not found" });
+      }
+
+      return res.json(updatedTraveler);
+    } catch (error) {
+      console.error("Error updating traveler:", error);
+      return res.status(500).json({ message: "Failed to update traveler" });
+    }
+  });
+
+  router.delete("/travelers/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const travelerId = parseInt(req.params.id);
+      if (isNaN(travelerId)) {
+        return res.status(400).json({ message: "Invalid traveler ID" });
+      }
+
+      // Verify traveler exists and belongs to user's booking
+      const traveler = await storage.getTraveler(travelerId);
+      if (!traveler) {
+        return res.status(404).json({ message: "Traveler not found" });
+      }
+
+      const booking = await storage.getBooking(traveler.bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: "Associated booking not found" });
+      }
+
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      
+      if (booking.userId !== userId && user?.role !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const deleted = await storage.deleteTraveler(travelerId);
+      if (!deleted) {
+        return res.status(404).json({ message: "Traveler not found" });
+      }
+
+      return res.json({ message: "Traveler deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting traveler:", error);
+      return res.status(500).json({ message: "Failed to delete traveler" });
     }
   });
 
