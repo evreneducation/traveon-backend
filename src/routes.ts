@@ -2,7 +2,7 @@ import { Router } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { storage } from "./storage.js";
-import { isAuthenticated } from "./index.js";
+import { isAuthenticated, isAuthenticatedToken } from "./index.js";
 import { EmailService } from "./emailService.js";
 import {
   insertTourPackageSchema,
@@ -25,6 +25,39 @@ import { z } from "zod";
 import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import path from "path";
+
+// Helper function to calculate pricing based on hotel category and flight inclusion
+const calculatePackagePrice = (pkg: TourPackage, hotelCategory: '3_star' | '4_5_star', flightIncluded: boolean) => {
+  if (!pkg.pricingTiers) {
+    // Fallback to original pricing if no tiers defined
+    return {
+      price: pkg.startingPrice,
+      strikeThroughPrice: pkg.strikeThroughPrice,
+      childrenPrice: (parseFloat(pkg.startingPrice) * 0.7).toString(), // 30% discount for children
+      childrenStrikeThroughPrice: pkg.strikeThroughPrice ? (parseFloat(pkg.strikeThroughPrice) * 0.7).toString() : null
+    };
+  }
+
+  const categoryPricing = pkg.pricingTiers[hotelCategory];
+  if (!categoryPricing) {
+    return {
+      price: pkg.startingPrice,
+      strikeThroughPrice: pkg.strikeThroughPrice,
+      childrenPrice: (parseFloat(pkg.startingPrice) * 0.7).toString(),
+      childrenStrikeThroughPrice: pkg.strikeThroughPrice ? (parseFloat(pkg.strikeThroughPrice) * 0.7).toString() : null
+    };
+  }
+
+  const selectedPricing = flightIncluded ? categoryPricing.with_flights : categoryPricing.without_flights;
+  
+  return {
+    price: selectedPricing.price,
+    strikeThroughPrice: selectedPricing.strikethrough_price || null,
+    childrenPrice: selectedPricing.children_price || (parseFloat(selectedPricing.price) * 0.7).toString(),
+    childrenStrikeThroughPrice: selectedPricing.children_strikethrough_price || 
+      (selectedPricing.strikethrough_price ? (parseFloat(selectedPricing.strikethrough_price) * 0.7).toString() : null)
+  };
+};
 
 // Initialize Razorpay
 let razorpay: Razorpay | null = null;
@@ -350,7 +383,39 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/packages", isAuthenticated, async (req: any, res) => {
+  // Get pricing for specific hotel category and flight inclusion
+  router.get("/packages/:id/pricing", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { hotelCategory = '3_star', flightIncluded = 'false' } = req.query;
+      
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid package ID" });
+      }
+
+      const pkg = await storage.getTourPackage(id);
+      if (!pkg) {
+        return res.status(404).json({ message: "Package not found" });
+      }
+
+      const hotelCat = hotelCategory as '3_star' | '4_5_star';
+      const includeFlight = flightIncluded === 'true';
+      
+      const pricing = calculatePackagePrice(pkg, hotelCat, includeFlight);
+      
+      return res.json({
+        packageId: id,
+        hotelCategory: hotelCat,
+        flightIncluded: includeFlight,
+        ...pricing
+      });
+    } catch (error) {
+      console.error("Error fetching package pricing:", error);
+      return res.status(500).json({ message: "Failed to fetch package pricing" });
+    }
+  });
+
+  router.post("/packages", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -373,7 +438,7 @@ export function registerRoutes() {
     }
   });
 
-  router.put("/packages/:id", isAuthenticated, async (req: any, res) => {
+  router.put("/packages/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -399,7 +464,7 @@ export function registerRoutes() {
     }
   });
 
-  router.delete("/packages/:id", isAuthenticated, async (req: any, res) => {
+  router.delete("/packages/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -468,7 +533,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/events", isAuthenticated, async (req: any, res) => {
+  router.post("/events", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -491,7 +556,7 @@ export function registerRoutes() {
     }
   });
 
-  router.put("/events/:id", isAuthenticated, async (req: any, res) => {
+  router.put("/events/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -523,7 +588,7 @@ export function registerRoutes() {
     }
   });
 
-  router.delete("/events/:id", isAuthenticated, async (req: any, res) => {
+  router.delete("/events/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -550,7 +615,7 @@ export function registerRoutes() {
   });
 
   // Booking routes
-  router.get("/bookings", isAuthenticated, async (req: any, res) => {
+  router.get("/bookings", isAuthenticatedToken, async (req: any, res) => {
     try {
       const bookings = await storage.getBookings(req.user.id);
       return res.json(bookings);
@@ -560,7 +625,7 @@ export function registerRoutes() {
     }
   });
 
-  router.get("/bookings/:id", isAuthenticated, async (req: any, res) => {
+  router.get("/bookings/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -587,7 +652,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/bookings", isAuthenticated, async (req: any, res) => {
+  router.post("/bookings", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { travelers: travelersData, ...bookingData } = req.body;
@@ -597,12 +662,12 @@ export function registerRoutes() {
         userId,
       });
 
-      // Check passenger count against package limits
-      const { packageId, eventId, travelDate, adults, children = 0 } = validated;
+      // Check passenger count against package limits and calculate pricing
+      const { packageId, eventId, travelDate, adults, children = 0, hotelCategory, flightIncluded } = validated;
       const totalGuests = adults + children;
       
       if (packageId) {
-        // Get package details to check maxPassengerCount
+        // Get package details to check maxPassengerCount and calculate correct pricing
         const pkg = await storage.getTourPackage(packageId);
         if (!pkg) {
           return res.status(404).json({ message: "Package not found" });
@@ -613,6 +678,20 @@ export function registerRoutes() {
             message: `Maximum ${pkg.maxPassengerCount} passengers allowed for this package. You selected ${totalGuests}.` 
           });
         }
+
+        // Calculate correct pricing based on hotel category and flight inclusion
+        const pricing = calculatePackagePrice(
+          pkg, 
+          (hotelCategory || '3_star') as '3_star' | '4_5_star', 
+          flightIncluded || false
+        );
+        
+        const basePrice = parseFloat(pricing.price);
+        const childrenPrice = parseFloat(pricing.childrenPrice);
+        const calculatedTotal = (adults * basePrice) + (children * childrenPrice);
+        
+        // Update the total amount with the correct pricing
+        validated.totalAmount = calculatedTotal.toString();
       }
       
       // Check availability before creating booking
@@ -675,7 +754,7 @@ export function registerRoutes() {
   });
 
   // Traveler routes
-  router.get("/bookings/:bookingId/travelers", isAuthenticated, async (req: any, res) => {
+  router.get("/bookings/:bookingId/travelers", isAuthenticatedToken, async (req: any, res) => {
     try {
       const bookingId = parseInt(req.params.bookingId);
       if (isNaN(bookingId)) {
@@ -703,7 +782,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/bookings/:bookingId/travelers", isAuthenticated, async (req: any, res) => {
+  router.post("/bookings/:bookingId/travelers", isAuthenticatedToken, async (req: any, res) => {
     try {
       const bookingId = parseInt(req.params.bookingId);
       if (isNaN(bookingId)) {
@@ -741,7 +820,7 @@ export function registerRoutes() {
     }
   });
 
-  router.put("/travelers/:id", isAuthenticated, async (req: any, res) => {
+  router.put("/travelers/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const travelerId = parseInt(req.params.id);
       if (isNaN(travelerId)) {
@@ -778,7 +857,7 @@ export function registerRoutes() {
     }
   });
 
-  router.delete("/travelers/:id", isAuthenticated, async (req: any, res) => {
+  router.delete("/travelers/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const travelerId = parseInt(req.params.id);
       if (isNaN(travelerId)) {
@@ -816,7 +895,7 @@ export function registerRoutes() {
   });
 
   // Payment routes
-  router.post("/payments/create-order", isAuthenticated, async (req: any, res) => {
+  router.post("/payments/create-order", isAuthenticatedToken, async (req: any, res) => {
     try {
       if (!razorpay) {
         return res
@@ -939,7 +1018,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/reviews", isAuthenticated, async (req: any, res) => {
+  router.post("/reviews", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const validated = insertReviewSchema.parse({
@@ -990,7 +1069,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/availability", isAuthenticated, async (req: any, res) => {
+  router.post("/availability", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1031,7 +1110,7 @@ export function registerRoutes() {
     }
   });
 
-  router.post("/translations", isAuthenticated, async (req: any, res) => {
+  router.post("/translations", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1116,7 +1195,7 @@ export function registerRoutes() {
   });
 
   // Admin dashboard routes
-  router.get("/admin/dashboard", isAuthenticated, async (req: any, res) => {
+  router.get("/admin/dashboard", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1156,7 +1235,7 @@ export function registerRoutes() {
   });
 
   // Admin contact queries routes
-  router.get("/admin/contact-queries", isAuthenticated, async (req: any, res) => {
+  router.get("/admin/contact-queries", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1180,7 +1259,7 @@ export function registerRoutes() {
     }
   });
 
-  router.get("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+  router.get("/admin/contact-queries/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1206,7 +1285,7 @@ export function registerRoutes() {
     }
   });
 
-  router.put("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+  router.put("/admin/contact-queries/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1239,7 +1318,7 @@ export function registerRoutes() {
     }
   });
 
-  router.delete("/admin/contact-queries/:id", isAuthenticated, async (req: any, res) => {
+  router.delete("/admin/contact-queries/:id", isAuthenticatedToken, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);

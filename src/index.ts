@@ -306,7 +306,7 @@ app.get("/auth/logout", (req, res, next) => {
   });
 });
 
-// Middleware to protect routes
+// Middleware to protect routes (session-based)
 export function isAuthenticated(
   req: Request,
   res: Response,
@@ -316,6 +316,36 @@ export function isAuthenticated(
     return next();
   }
   res.status(401).json({ message: "Unauthorized" });
+}
+
+// Middleware to protect routes (token-based)
+export function isAuthenticatedToken(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  
+  if (!token) {
+    return res.status(401).json({ message: "No token provided" });
+  }
+  
+  const activeTokens = (global as any).activeTokens || new Map();
+  const tokenData = activeTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+  
+  if (tokenData.expires < Date.now()) {
+    activeTokens.delete(token);
+    return res.status(401).json({ message: "Token expired" });
+  }
+  
+  // Add user info to request
+  (req as any).user = { id: tokenData.userId };
+  return next();
 }
 
 // Logging middleware

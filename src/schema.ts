@@ -52,6 +52,46 @@ export const tourPackages = pgTable("tour_packages", {
   maxPassengerCount: integer("max_passenger_count"),
   startingPrice: numeric("starting_price", { precision: 10, scale: 2 }).notNull(),
   strikeThroughPrice: numeric("strike_through_price", { precision: 10, scale: 2 }),
+  // New pricing structure for hotel categories and flight inclusion with children pricing
+  pricingTiers: json("pricing_tiers").$type<{
+    "3_star": {
+      with_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+      without_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+    };
+    "4_5_star": {
+      with_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+      without_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+    };
+  }>().default({
+    "3_star": {
+      with_flights: { price: "0", children_price: "0" },
+      without_flights: { price: "0", children_price: "0" }
+    },
+    "4_5_star": {
+      with_flights: { price: "0", children_price: "0" },
+      without_flights: { price: "0", children_price: "0" }
+    }
+  }),
   leastPricedInventory: text("least_priced_inventory"),
   currency: text("currency").notNull().default("INR"),
   termsAndConditions: text("terms_and_conditions"),
@@ -102,6 +142,9 @@ export const bookings = pgTable("bookings", {
   contactName: text("contact_name").notNull(),
   contactEmail: text("contact_email").notNull(),
   contactPhone: text("contact_phone"),
+  // Selected pricing options
+  hotelCategory: text("hotel_category").notNull().default("3_star"), // "3_star" or "4_5_star"
+  flightIncluded: boolean("flight_included").notNull().default(false),
   totalAmount: numeric("total_amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("INR"),
   status: text("status").notNull().default("pending"), // pending, confirmed, cancelled
