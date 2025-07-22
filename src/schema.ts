@@ -52,6 +52,46 @@ export const tourPackages = pgTable("tour_packages", {
   maxPassengerCount: integer("max_passenger_count"),
   startingPrice: numeric("starting_price", { precision: 10, scale: 2 }).notNull(),
   strikeThroughPrice: numeric("strike_through_price", { precision: 10, scale: 2 }),
+  // New pricing structure for hotel categories and flight inclusion with children pricing
+  pricingTiers: json("pricing_tiers").$type<{
+    "3_star": {
+      with_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+      without_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+    };
+    "4_5_star": {
+      with_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+      without_flights: { 
+        price: string; 
+        strikethrough_price?: string;
+        children_price?: string;
+        children_strikethrough_price?: string;
+      };
+    };
+  }>().default({
+    "3_star": {
+      with_flights: { price: "0", children_price: "0" },
+      without_flights: { price: "0", children_price: "0" }
+    },
+    "4_5_star": {
+      with_flights: { price: "0", children_price: "0" },
+      without_flights: { price: "0", children_price: "0" }
+    }
+  }),
   leastPricedInventory: text("least_priced_inventory"),
   currency: text("currency").notNull().default("INR"),
   termsAndConditions: text("terms_and_conditions"),
@@ -96,17 +136,42 @@ export const bookings = pgTable("bookings", {
   userId: varchar("user_id").references(() => users.id),
   packageId: integer("package_id").references(() => tourPackages.id),
   eventId: integer("event_id").references(() => events.id),
-  guestName: text("guest_name").notNull(),
-  guestEmail: text("guest_email").notNull(),
-  guestPhone: text("guest_phone"),
-  checkInDate: timestamp("check_in_date"),
-  guestCount: integer("guest_count").notNull(),
+  travelDate: timestamp("travel_date"),
+  adults: integer("adults").notNull(),
+  children: integer("children").notNull().default(0),
+  contactName: text("contact_name").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone"),
+  // Selected pricing options
+  hotelCategory: text("hotel_category").notNull().default("3_star"), // "3_star" or "4_5_star"
+  flightIncluded: boolean("flight_included").notNull().default(false),
   totalAmount: numeric("total_amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("INR"),
   status: text("status").notNull().default("pending"), // pending, confirmed, cancelled
   paymentStatus: text("payment_status").notNull().default("pending"), // pending, paid, failed
   paymentId: text("payment_id"), // Razorpay payment ID
   orderId: text("order_id"), // Razorpay order ID
+  specialRequests: text("special_requests"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Individual traveler details table
+export const travelers = pgTable("travelers", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").notNull().references(() => bookings.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // 'adult' or 'child'
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  dateOfBirth: timestamp("date_of_birth"),
+  gender: text("gender"), // 'male', 'female', 'other'
+  nationality: text("nationality"),
+  passportNumber: text("passport_number"),
+  passportExpiry: timestamp("passport_expiry"),
+  dietaryRequirements: text("dietary_requirements"),
+  medicalConditions: text("medical_conditions"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
   specialRequests: text("special_requests"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -214,7 +279,7 @@ export const eventsRelations = relations(events, ({ many }) => ({
   translations: many(translations),
 }));
 
-export const bookingsRelations = relations(bookings, ({ one }) => ({
+export const bookingsRelations = relations(bookings, ({ one, many }) => ({
   user: one(users, {
     fields: [bookings.userId],
     references: [users.id],
@@ -226,6 +291,14 @@ export const bookingsRelations = relations(bookings, ({ one }) => ({
   event: one(events, {
     fields: [bookings.eventId],
     references: [events.id],
+  }),
+  travelers: many(travelers),
+}));
+
+export const travelersRelations = relations(travelers, ({ one }) => ({
+  booking: one(bookings, {
+    fields: [travelers.bookingId],
+    references: [bookings.id],
   }),
 }));
 
@@ -243,6 +316,7 @@ export const upsertUserSchema = insertUserSchema.partial({ id: true });
 export const insertTourPackageSchema = createInsertSchema(tourPackages);
 export const insertEventSchema = createInsertSchema(events);
 export const insertBookingSchema = createInsertSchema(bookings);
+export const insertTravelerSchema = createInsertSchema(travelers);
 export const insertReviewSchema = createInsertSchema(reviews);
 export const insertPaymentSchema = createInsertSchema(payments);
 export const insertAvailabilitySchema = createInsertSchema(availability);
@@ -263,6 +337,9 @@ export type InsertEvent = z.infer<typeof insertEventSchema>;
 
 export type Booking = typeof bookings.$inferSelect;
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
+
+export type Traveler = typeof travelers.$inferSelect;
+export type InsertTraveler = z.infer<typeof insertTravelerSchema>;
 
 export type Review = typeof reviews.$inferSelect;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
