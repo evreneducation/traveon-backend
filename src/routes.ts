@@ -1224,10 +1224,11 @@ export function registerRoutes() {
   });
 
   // Admin: Get all bookings
-  router.get("/admin/bookings", isAuthenticatedToken, async (req, res) => {
+  router.get("/admin/bookings", isAuthenticatedToken, async (req: any, res) => {
     try {
-      if (!req.user || !req.user.id) return res.status(401).json({ message: "Unauthorized" });
-      const user = await storage.getUser(req.user.id);
+      const userId = req.user && req.user.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const user = await storage.getUser(userId);
       if (!user || user.role !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
