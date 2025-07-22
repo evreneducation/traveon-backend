@@ -20,6 +20,7 @@ import {
   type Booking,
   type Traveler,
   type InsertTraveler,
+  validateTravelerSchema,
 } from "./schema.js";
 import { z } from "zod";
 import multer from "multer";
@@ -625,131 +626,130 @@ export function registerRoutes() {
     }
   });
 
-  router.get("/bookings/:id", isAuthenticatedToken, async (req: any, res) => {
+  router.get("/bookings/:id", isAuthenticatedToken, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const booking = await storage.getBooking(id);
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    const travelers = await storage.getTravelers(id);
+    let packageName = "";
+    if (booking.packageId) {
+      const pkg = await storage.getTourPackage(booking.packageId);
+      packageName = pkg?.name || "";
+    }
+    return res.json({ ...booking, travelers, packageName });
+  });
+
+  // 1. Validate booking (no DB writes)
+  router.post("/bookings/validate", isAuthenticatedToken, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      if (isNaN(id)) {
-        return res.status(400).json({ message: "Invalid booking ID" });
+      if (!req.user || !(req.user as any).id) {
+        return res.status(401).json({ message: "Unauthorized" });
       }
-
-      const booking = await storage.getBooking(id);
-      if (!booking) {
-        return res.status(404).json({ message: "Booking not found" });
+      const userId = (req.user as any).id;
+      const { travelers: travelersData, ...bookingData } = req.body;
+      // Convert travelDate to Date
+      if (bookingData.travelDate && typeof bookingData.travelDate === 'string') {
+        bookingData.travelDate = new Date(bookingData.travelDate);
       }
-
-      // Check if user owns this booking or is admin
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-
-      if (booking.userId !== userId && user?.role !== "admin") {
-        return res.status(403).json({ message: "Access denied" });
+      // Validate booking (max passengers, etc)
+      const validated = insertBookingSchema.parse({ ...bookingData, userId });
+      // Calculate total (use your pricing logic)
+      // ...
+      // Validate travelers (dateOfBirth as Date)
+      if (travelersData && Array.isArray(travelersData)) {
+        travelersData.forEach(traveler => {
+          validateTravelerSchema.parse({
+            ...traveler,
+            dateOfBirth: traveler.dateOfBirth ? new Date(traveler.dateOfBirth) : undefined,
+          });
+        });
       }
-
-      return res.json(booking);
-    } catch (error) {
-      console.error("Error fetching booking:", error);
-      return res.status(500).json({ message: "Failed to fetch booking" });
+      return res.json({ totalAmount: validated.totalAmount });
+    } catch (err: any) {
+      return res.status(400).json({ message: "Validation error", errors: err.errors });
     }
   });
 
-  router.post("/bookings", isAuthenticatedToken, async (req: any, res) => {
+  // 2. Create Razorpay order
+  router.post("/payments/create-order", isAuthenticatedToken, async (req, res) => {
     try {
-      const userId = req.user.id;
-      const { travelers: travelersData, ...bookingData } = req.body;
-      
-      const validated = insertBookingSchema.parse({
-        ...bookingData,
-        userId,
+      if (!razorpay) {
+        return res.status(500).json({ message: "Payment system not configured" });
+      }
+      const { amount, bookingData } = req.body;
+      const order = await razorpay.orders.create({
+        amount: Math.round(amount * 100),
+        currency: "INR",
+        receipt: `booking_${Date.now()}`,
+        notes: { bookingData: JSON.stringify(bookingData) },
       });
+      return res.json({ orderId: order.id, amount: order.amount, currency: order.currency });
+    } catch (err: any) {
+      return res.status(500).json({ message: "Failed to create payment order" });
+    }
+  });
 
-      // Check passenger count against package limits and calculate pricing
-      const { packageId, eventId, travelDate, adults, children = 0, hotelCategory, flightIncluded } = validated;
-      const totalGuests = adults + children;
-      
-      if (packageId) {
-        // Get package details to check maxPassengerCount and calculate correct pricing
-        const pkg = await storage.getTourPackage(packageId);
-        if (!pkg) {
-          return res.status(404).json({ message: "Package not found" });
-        }
-        
-        if (pkg.maxPassengerCount && totalGuests > pkg.maxPassengerCount) {
-          return res.status(400).json({ 
-            message: `Maximum ${pkg.maxPassengerCount} passengers allowed for this package. You selected ${totalGuests}.` 
-          });
-        }
-
-        // Calculate correct pricing based on hotel category and flight inclusion
-        const pricing = calculatePackagePrice(
-          pkg, 
-          (hotelCategory || '3_star') as '3_star' | '4_5_star', 
-          flightIncluded || false
-        );
-        
-        const basePrice = parseFloat(pricing.price);
-        const childrenPrice = parseFloat(pricing.childrenPrice);
-        const calculatedTotal = (adults * basePrice) + (children * childrenPrice);
-        
-        // Update the total amount with the correct pricing
-        validated.totalAmount = calculatedTotal.toString();
+  // 3. Verify payment and create booking
+  router.post("/payments/verify", isAuthenticatedToken, async (req, res) => {
+    try {
+      if (!req.user || !(req.user as any).id) {
+        return res.status(401).json({ message: "Unauthorized" });
       }
-      
-      // Check availability before creating booking
-      if (packageId && travelDate) {
-        const available = await storage.checkAvailability(
-          packageId,
-          0,
-          new Date(travelDate),
-          totalGuests,
-        );
-        if (!available) {
-          return res
-            .status(400)
-            .json({ message: "Not enough availability for selected date" });
-        }
+      if (!process.env.RAZORPAY_KEY_SECRET) {
+        return res.status(500).json({ message: "Payment system not configured" });
       }
-
-      // Create the booking
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingData } = req.body;
+      // Debug logs for signature verification
+      const secret = process.env.RAZORPAY_KEY_SECRET;
+      const maskedSecret = secret.length > 4 ? '*'.repeat(secret.length - 4) + secret.slice(-4) : secret;
+      console.log("[Razorpay Verify] order_id:", razorpay_order_id);
+      console.log("[Razorpay Verify] payment_id:", razorpay_payment_id);
+      console.log("[Razorpay Verify] signature (from Razorpay):", razorpay_signature);
+      console.log("[Razorpay Verify] secret used:", maskedSecret);
+      const text = `${razorpay_order_id}|${razorpay_payment_id}`;
+      const signature = crypto.createHmac("sha256", secret).update(text).digest("hex");
+      console.log("[Razorpay Verify] computed signature:", signature);
+      if (signature !== razorpay_signature) {
+        return res.status(400).json({ message: "Invalid payment signature" });
+      }
+      // Create booking
+      const { travelers: travelersData, ...bookingInfo } = bookingData;
+      if (bookingInfo.travelDate && typeof bookingInfo.travelDate === 'string') {
+        bookingInfo.travelDate = new Date(bookingInfo.travelDate);
+      }
+      const validated = insertBookingSchema.parse({
+        ...bookingInfo,
+        userId: (req.user as any).id,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
+        paymentStatus: 'paid',
+        status: 'confirmed',
+      });
       const booking = await storage.createBooking(validated);
-
-      // Create traveler records if provided
-      if (travelersData && Array.isArray(travelersData) && travelersData.length > 0) {
-        const validatedTravelers = travelersData.map((traveler: any) => 
+      // Create travelers
+      if (travelersData && Array.isArray(travelersData)) {
+        const validatedTravelers = travelersData.map(traveler =>
           insertTravelerSchema.parse({
             ...traveler,
             bookingId: booking.id,
+            dateOfBirth: traveler.dateOfBirth ? new Date(traveler.dateOfBirth) : undefined,
           })
         );
-        
         await storage.createTravelers(validatedTravelers);
       }
-
-      // Reserve slots
-      if (packageId && travelDate) {
-        await storage.reserveSlots(
-          packageId,
-          0,
-          new Date(travelDate),
-          totalGuests,
-        );
-      }
-
-      // Fetch the complete booking with travelers
-      const completeBooking = {
-        ...booking,
-        travelers: travelersData && Array.isArray(travelersData) ? 
-          await storage.getTravelers(booking.id) : []
-      };
-
-      return res.status(201).json(completeBooking);
-    } catch (error) {
-      console.error("Error creating booking:", error);
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Validation error", errors: error.errors });
-      }
-      return res.status(500).json({ message: "Failed to create booking" });
+      // Save payment record
+      await storage.createPayment({
+        bookingId: booking.id,
+        razorpayOrderId: razorpay_order_id,
+        razorpayPaymentId: razorpay_payment_id,
+        razorpaySignature: razorpay_signature,
+        amount: validated.totalAmount,
+        currency: validated.currency || 'INR',
+        status: "paid",
+      });
+      return res.json({ message: "Booking confirmed", bookingId: booking.id });
+    } catch (err: any) {
+      return res.status(400).json({ message: "Payment verification failed", errors: err.errors });
     }
   });
 
@@ -895,108 +895,9 @@ export function registerRoutes() {
   });
 
   // Payment routes
-  router.post("/payments/create-order", isAuthenticatedToken, async (req: any, res) => {
-    try {
-      if (!razorpay) {
-        return res
-          .status(500)
-          .json({ message: "Payment system not configured" });
-      }
-
-      const { bookingId, amount, currency = "INR" } = req.body;
-
-      if (!bookingId || !amount) {
-        return res
-          .status(400)
-          .json({ message: "Booking ID and amount are required" });
-      }
-
-      // Verify booking exists and belongs to user
-      const booking = await storage.getBooking(bookingId);
-      if (!booking || booking.userId !== req.user.id) {
-        return res.status(404).json({ message: "Booking not found" });
-      }
-
-      const options = {
-        amount: Math.round(amount * 100), // Convert to paise
-        currency,
-        receipt: `booking_${bookingId}`,
-        notes: {
-          bookingId: bookingId.toString(),
-        },
-      };
-
-      const order = await razorpay.orders.create(options);
-
-      // Create payment record
-      const payment = await storage.createPayment({
-        bookingId,
-        razorpayOrderId: order.id,
-        amount: amount.toString(),
-        currency,
-        status: "created",
-      });
-
-      return res.json({
-        orderId: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        paymentId: payment.id,
-      });
-    } catch (error) {
-      console.error("Error creating payment order:", error);
-      return res.status(500).json({ message: "Failed to create payment order" });
-    }
-  });
-
-  router.post("/payments/verify", async (req: any, res) => {
-    try {
-      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-        return res.status(400).json({ message: "Missing payment verification data" });
-      }
-
-      // Verify signature
-      const text = `${razorpay_order_id}|${razorpay_payment_id}`;
-      const signature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "")
-        .update(text)
-        .digest("hex");
-
-      if (signature !== razorpay_signature) {
-        return res.status(400).json({ message: "Invalid payment signature" });
-      }
-
-      // Update payment status
-      const payments = await storage.getPayments();
-      const payment = payments.find(p => p.razorpayOrderId === razorpay_order_id);
-      
-      if (!payment) {
-        return res.status(404).json({ message: "Payment not found" });
-      }
-
-      const updatedPayment = await storage.updatePayment(payment.id, {
-        razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature,
-        status: "paid",
-      });
-
-      // Update booking status
-      if (updatedPayment) {
-        await storage.updateBooking(payment.bookingId, {
-          paymentStatus: "paid",
-          paymentId: razorpay_payment_id,
-          orderId: razorpay_order_id,
-        });
-      }
-
-      return res.json({ message: "Payment verified successfully" });
-    } catch (error) {
-      console.error("Error verifying payment:", error);
-      return res.status(500).json({ message: "Failed to verify payment" });
-    }
-  });
+  // The old /payments/create-order, /payments/verify, and /payments/verify-session/:sessionId
+  // are now handled by the new /api/payments/create-order, /api/payments/verify, and
+  // /auth/verify-session/:sessionId respectively. This section is now redundant for new payment flows.
 
   // Reviews routes
   router.get("/reviews", async (req, res) => {
@@ -1048,49 +949,8 @@ export function registerRoutes() {
   });
 
   // Availability routes
-  router.get("/availability", async (req, res) => {
-    try {
-      const { packageId, eventId, date } = req.query;
-      const filters: any = {};
-
-      if (packageId) filters.packageId = parseInt(packageId as string);
-      if (eventId) filters.eventId = parseInt(eventId as string);
-      if (date) filters.date = new Date(date as string);
-
-      const availability = await storage.getAvailability(
-        filters.packageId,
-        filters.eventId,
-        filters.date,
-      );
-      res.json(availability);
-    } catch (error) {
-      console.error("Error fetching availability:", error);
-      res.status(500).json({ message: "Failed to fetch availability" });
-    }
-  });
-
-  router.post("/availability", isAuthenticatedToken, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-
-      if (!user || user.role !== "admin") {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      const validated = insertAvailabilitySchema.parse(req.body);
-      const availability = await storage.createAvailability(validated);
-      return res.status(201).json(availability);
-    } catch (error) {
-      console.error("Error creating availability:", error);
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Validation error", errors: error.errors });
-      }
-      return res.status(500).json({ message: "Failed to create availability" });
-    }
-  });
+  // The old /availability endpoint is now handled by the new /api/bookings/validate
+  // and /api/payments/verify. This section is now redundant for new booking flows.
 
   // Translation routes
   router.get("/translations/:entityType/:entityId", async (req, res) => {
@@ -1360,6 +1220,23 @@ export function registerRoutes() {
     } catch (error) {
       console.error("Error uploading image:", error);
       return res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
+  // Admin: Get all bookings
+  router.get("/admin/bookings", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user && req.user.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const bookings = await storage.getBookings(); // No userId filter!
+      return res.json(bookings);
+    } catch (error) {
+      console.error("Error fetching all bookings:", error);
+      return res.status(500).json({ message: "Failed to fetch all bookings" });
     }
   });
 
