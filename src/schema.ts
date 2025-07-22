@@ -324,6 +324,8 @@ export const insertTranslationSchema = createInsertSchema(translations);
 export const insertNewsletterSchema = createInsertSchema(newsletters);
 export const insertContactQuerySchema = createInsertSchema(contactQueries);
 
+export const validateTravelerSchema = insertTravelerSchema.omit({ bookingId: true });
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
