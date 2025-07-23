@@ -382,11 +382,15 @@ export class DatabaseStorage implements IStorage {
     }
     
     if (filters?.dateFrom) {
-      conditions.push(gte(events.startDate, filters.dateFrom));
+      // Convert Date to string format for comparison with text field
+      const dateFromStr = filters.dateFrom.toISOString().split('T')[0];
+      conditions.push(gte(events.startDate, dateFromStr));
     }
     
     if (filters?.dateTo) {
-      conditions.push(lte(events.endDate, filters.dateTo));
+      // Convert Date to string format for comparison with text field
+      const dateToStr = filters.dateTo.toISOString().split('T')[0];
+      conditions.push(lte(events.startDate, dateToStr));
     }
     
     if (filters?.search) {
