@@ -753,6 +753,26 @@ export function registerRoutes() {
         currency: validated.currency || 'INR',
         status: "paid",
       });
+
+      // Send booking emails (user + admin)
+      try {
+        const user = await storage.getUser(booking.userId!);
+        let packageOrEvent = undefined;
+        if (booking.packageId) {
+          packageOrEvent = await storage.getTourPackage(booking.packageId);
+        } else if (booking.eventId) {
+          packageOrEvent = await storage.getEvent(booking.eventId);
+        }
+        const travelers = await storage.getTravelers(booking.id);
+        await Promise.all([
+          EmailService.sendBookingConfirmation(booking, user, packageOrEvent, travelers),
+          EmailService.sendAdminBookingNotification(booking, user, packageOrEvent, travelers)
+        ]);
+      } catch (emailError) {
+        console.error('Error sending booking emails:', emailError);
+        // Do not block booking confirmation if email fails
+      }
+
       return res.json({ message: "Booking confirmed", bookingId: booking.id });
     } catch (err: any) {
       return res.status(400).json({ message: "Payment verification failed", errors: err.errors });
