@@ -21,6 +21,12 @@ import {
   type Traveler,
   type InsertTraveler,
   validateTravelerSchema,
+  insertLeadSchema,
+  insertCustomerSchema,
+  insertLeadActivitySchema,
+  insertOpportunitySchema,
+  insertEmailTemplateSchema,
+  insertTaskSchema,
 } from "./schema.js";
 import { z } from "zod";
 import multer from "multer";
@@ -1237,6 +1243,475 @@ export function registerRoutes() {
     } catch (error) {
       console.error("Error fetching all bookings:", error);
       return res.status(500).json({ message: "Failed to fetch all bookings" });
+    }
+  });
+
+  // CRM: Customer routes
+  router.get("/crm/customers", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { status, customerType, assignedTo, search } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (customerType) filters.customerType = customerType as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+      if (search) filters.search = search as string;
+
+      const customers = await storage.getCustomers(filters);
+      return res.json(customers);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+      return res.status(500).json({ message: "Failed to fetch customers" });
+    }
+  });
+
+  router.get("/crm/customers/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
+
+      const customer = await storage.getCustomer(id);
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      return res.json(customer);
+    } catch (error) {
+      console.error("Error fetching customer:", error);
+      return res.status(500).json({ message: "Failed to fetch customer" });
+    }
+  });
+
+  router.post("/crm/customers", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertCustomerSchema.parse(req.body);
+      const customer = await storage.createCustomer(validated);
+      return res.status(201).json(customer);
+    } catch (error) {
+      console.error("Error creating customer:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create customer" });
+    }
+  });
+
+  router.put("/crm/customers/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
+
+      const validated = insertCustomerSchema.partial().parse(req.body);
+      const customer = await storage.updateCustomer(id, validated);
+      
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      return res.json(customer);
+    } catch (error) {
+      console.error("Error updating customer:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to update customer" });
+    }
+  });
+
+  router.delete("/crm/customers/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid customer ID" });
+      }
+
+      const success = await storage.deleteCustomer(id);
+      if (!success) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      return res.json({ message: "Customer deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      return res.status(500).json({ message: "Failed to delete customer" });
+    }
+  });
+
+  // CRM: Lead routes
+  router.get("/crm/leads", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { status, priority, assignedTo, source, search } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (priority) filters.priority = priority as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+      if (source) filters.source = source as string;
+      if (search) filters.search = search as string;
+
+      const leads = await storage.getLeads(filters);
+      return res.json(leads);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      return res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+
+  router.get("/crm/leads/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+
+      const lead = await storage.getLead(id);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      return res.json(lead);
+    } catch (error) {
+      console.error("Error fetching lead:", error);
+      return res.status(500).json({ message: "Failed to fetch lead" });
+    }
+  });
+
+  router.post("/crm/leads", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertLeadSchema.parse(req.body);
+      const lead = await storage.createLead(validated);
+      return res.status(201).json(lead);
+    } catch (error) {
+      console.error("Error creating lead:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create lead" });
+    }
+  });
+
+  router.put("/crm/leads/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+
+      const validated = insertLeadSchema.partial().parse(req.body);
+      const lead = await storage.updateLead(id, validated);
+      
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      return res.json(lead);
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to update lead" });
+    }
+  });
+
+  router.delete("/crm/leads/:id", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+
+      const success = await storage.deleteLead(id);
+      if (!success) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      return res.json({ message: "Lead deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting lead:", error);
+      return res.status(500).json({ message: "Failed to delete lead" });
+    }
+  });
+
+  // CRM: Lead activities routes
+  router.get("/crm/leads/:leadId/activities", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const leadId = parseInt(req.params.leadId);
+      if (isNaN(leadId)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+
+      const activities = await storage.getLeadActivities(leadId);
+      return res.json(activities);
+    } catch (error) {
+      console.error("Error fetching lead activities:", error);
+      return res.status(500).json({ message: "Failed to fetch lead activities" });
+    }
+  });
+
+  router.post("/crm/leads/:leadId/activities", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const leadId = parseInt(req.params.leadId);
+      if (isNaN(leadId)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+
+      const validated = insertLeadActivitySchema.parse({
+        ...req.body,
+        leadId,
+        createdBy: userId
+      });
+      const activity = await storage.createLeadActivity(validated);
+      return res.status(201).json(activity);
+    } catch (error) {
+      console.error("Error creating lead activity:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create lead activity" });
+    }
+  });
+
+  // CRM: Opportunities routes
+  router.get("/crm/opportunities", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { stage, assignedTo, search } = req.query;
+      const filters: any = {};
+      
+      if (stage) filters.stage = stage as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+      if (search) filters.search = search as string;
+
+      const opportunities = await storage.getOpportunities(filters);
+      return res.json(opportunities);
+    } catch (error) {
+      console.error("Error fetching opportunities:", error);
+      return res.status(500).json({ message: "Failed to fetch opportunities" });
+    }
+  });
+
+  router.post("/crm/opportunities", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertOpportunitySchema.parse(req.body);
+      const opportunity = await storage.createOpportunity(validated);
+      return res.status(201).json(opportunity);
+    } catch (error) {
+      console.error("Error creating opportunity:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create opportunity" });
+    }
+  });
+
+  // CRM: Tasks routes
+  router.get("/crm/tasks", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { status, priority, assignedTo, type } = req.query;
+      const filters: any = {};
+      
+      if (status) filters.status = status as string;
+      if (priority) filters.priority = priority as string;
+      if (assignedTo) filters.assignedTo = assignedTo as string;
+      if (type) filters.type = type as string;
+
+      const tasks = await storage.getTasks(filters);
+      return res.json(tasks);
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+      return res.status(500).json({ message: "Failed to fetch tasks" });
+    }
+  });
+
+  router.post("/crm/tasks", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertTaskSchema.parse({
+        ...req.body,
+        createdBy: userId
+      });
+      const task = await storage.createTask(validated);
+      return res.status(201).json(task);
+    } catch (error) {
+      console.error("Error creating task:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create task" });
+    }
+  });
+
+  // CRM: Email templates routes
+  router.get("/crm/email-templates", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { category } = req.query;
+      const templates = await storage.getEmailTemplates(category as string);
+      return res.json(templates);
+    } catch (error) {
+      console.error("Error fetching email templates:", error);
+      return res.status(500).json({ message: "Failed to fetch email templates" });
+    }
+  });
+
+  router.post("/crm/email-templates", isAuthenticatedToken, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validated = insertEmailTemplateSchema.parse({
+        ...req.body,
+        createdBy: userId
+      });
+      const template = await storage.createEmailTemplate(validated);
+      return res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating email template:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Validation error", errors: error.errors });
+      }
+      return res.status(500).json({ message: "Failed to create email template" });
     }
   });
 

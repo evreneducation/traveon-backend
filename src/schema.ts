@@ -121,8 +121,7 @@ export const events = pgTable("events", {
   name: text("name").notNull(),
   description: text("description"),
   location: text("location").notNull(),
-  startDate: timestamp("start_date").notNull(),
-  endDate: timestamp("end_date").notNull(),
+  startDate: text("event_date").notNull(),
   imageUrl: text("image_url"),
   websiteUrl: text("website_url"),
   active: boolean("active").default(true),
@@ -259,10 +258,187 @@ export const contactQueries = pgTable("contact_queries", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// CRM: Customer profiles table
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull().unique(),
+  phone: text("phone"),
+  dateOfBirth: timestamp("date_of_birth"),
+  nationality: text("nationality"),
+  preferredLanguage: text("preferred_language").default("en"),
+  address: json("address").$type<{
+    street?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+  }>(),
+  source: text("source").default("website"), // website, referral, social_media, etc.
+  status: text("status").notNull().default("active"), // active, inactive, blocked
+  customerType: text("customer_type").notNull().default("individual"), // individual, corporate, vip
+  totalSpent: numeric("total_spent", { precision: 10, scale: 2 }).default("0"),
+  lastBookingDate: timestamp("last_booking_date"),
+  notes: text("notes"),
+  tags: json("tags").$type<string[]>().default([]),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Leads table
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  company: text("company"),
+  source: text("source").notNull().default("website"), // website, referral, social_media, cold_call
+  status: text("status").notNull().default("new"), // new, contacted, qualified, proposal, won, lost
+  priority: text("priority").notNull().default("normal"), // low, normal, high, urgent
+  budget: numeric("budget", { precision: 10, scale: 2 }),
+  destination: text("destination"),
+  travelDate: timestamp("travel_date"),
+  groupSize: integer("group_size"),
+  requirements: text("requirements"),
+  notes: text("notes"),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  nextFollowUp: timestamp("next_follow_up"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Lead activities table
+export const leadActivities = pgTable("lead_activities", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // call, email, meeting, note, task
+  subject: text("subject").notNull(),
+  description: text("description"),
+  outcome: text("outcome"), // positive, negative, neutral
+  nextAction: text("next_action"),
+  scheduledDate: timestamp("scheduled_date"),
+  completedDate: timestamp("completed_date"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Sales opportunities table
+export const opportunities = pgTable("opportunities", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").references(() => leads.id),
+  customerId: integer("customer_id").references(() => customers.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  stage: text("stage").notNull().default("prospecting"), // prospecting, qualification, proposal, negotiation, closed_won, closed_lost
+  probability: integer("probability").notNull().default(0), // 0-100
+  expectedValue: numeric("expected_value", { precision: 10, scale: 2 }),
+  expectedCloseDate: timestamp("expected_close_date"),
+  actualCloseDate: timestamp("actual_close_date"),
+  packageId: integer("package_id").references(() => tourPackages.id),
+  eventId: integer("event_id").references(() => events.id),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Customer interactions table
+export const customerInteractions = pgTable("customer_interactions", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // call, email, chat, meeting, booking, review
+  subject: text("subject").notNull(),
+  description: text("description"),
+  outcome: text("outcome"), // positive, negative, neutral
+  duration: integer("duration"), // in minutes
+  bookingId: integer("booking_id").references(() => bookings.id),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Email templates table
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  category: text("category").notNull().default("general"), // general, booking, follow_up, marketing
+  variables: json("variables").$type<string[]>().default([]), // {{name}}, {{booking_id}}, etc.
+  active: boolean("active").default(true),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Email campaigns table
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  templateId: integer("template_id").references(() => emailTemplates.id),
+  status: text("status").notNull().default("draft"), // draft, scheduled, sent, paused, cancelled
+  scheduledAt: timestamp("scheduled_at"),
+  sentAt: timestamp("sent_at"),
+  targetAudience: json("target_audience").$type<{
+    customerTypes?: string[];
+    tags?: string[];
+    lastBookingDate?: string; // "30d", "90d", "1y"
+    totalSpent?: { min?: number; max?: number };
+  }>(),
+  sentCount: integer("sent_count").default(0),
+  openedCount: integer("opened_count").default(0),
+  clickedCount: integer("clicked_count").default(0),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Tasks table
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default("general"), // general, follow_up, call, email, meeting
+  priority: text("priority").notNull().default("normal"), // low, normal, high, urgent
+  status: text("status").notNull().default("pending"), // pending, in_progress, completed, cancelled
+  dueDate: timestamp("due_date"),
+  completedDate: timestamp("completed_date"),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  relatedTo: text("related_to"), // customer_id, lead_id, opportunity_id, booking_id
+  relatedId: integer("related_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CRM: Customer preferences table
+export const customerPreferences = pgTable("customer_preferences", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  category: text("category").notNull(), // destinations, activities, accommodation, dining, budget
+  preferences: json("preferences").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   bookings: many(bookings),
   reviews: many(reviews),
+  customers: many(customers),
+  leads: many(leads),
+  opportunities: many(opportunities),
+  tasks: many(tasks),
+  emailTemplates: many(emailTemplates),
+  emailCampaigns: many(emailCampaigns),
 }));
 
 export const tourPackagesRelations = relations(tourPackages, ({ many }) => ({
@@ -270,6 +446,7 @@ export const tourPackagesRelations = relations(tourPackages, ({ many }) => ({
   reviews: many(reviews),
   availability: many(availability),
   translations: many(translations),
+  opportunities: many(opportunities),
 }));
 
 export const eventsRelations = relations(events, ({ many }) => ({
@@ -277,6 +454,7 @@ export const eventsRelations = relations(events, ({ many }) => ({
   reviews: many(reviews),
   availability: many(availability),
   translations: many(translations),
+  opportunities: many(opportunities),
 }));
 
 export const bookingsRelations = relations(bookings, ({ one, many }) => ({
@@ -293,6 +471,7 @@ export const bookingsRelations = relations(bookings, ({ one, many }) => ({
     references: [events.id],
   }),
   travelers: many(travelers),
+  customerInteractions: many(customerInteractions),
 }));
 
 export const travelersRelations = relations(travelers, ({ one }) => ({
@@ -306,6 +485,116 @@ export const contactQueriesRelations = relations(contactQueries, ({ one }) => ({
   assignedTo: one(users, {
     fields: [contactQueries.assignedTo],
     references: [users.id],
+  }),
+}));
+
+// CRM Relations
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  user: one(users, {
+    fields: [customers.userId],
+    references: [users.id],
+  }),
+  assignedTo: one(users, {
+    fields: [customers.assignedTo],
+    references: [users.id],
+  }),
+  interactions: many(customerInteractions),
+  opportunities: many(opportunities),
+  preferences: many(customerPreferences),
+}));
+
+export const leadsRelations = relations(leads, ({ one, many }) => ({
+  assignedTo: one(users, {
+    fields: [leads.assignedTo],
+    references: [users.id],
+  }),
+  activities: many(leadActivities),
+  opportunities: many(opportunities),
+}));
+
+export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
+  lead: one(leads, {
+    fields: [leadActivities.leadId],
+    references: [leads.id],
+  }),
+  createdBy: one(users, {
+    fields: [leadActivities.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const opportunitiesRelations = relations(opportunities, ({ one }) => ({
+  lead: one(leads, {
+    fields: [opportunities.leadId],
+    references: [leads.id],
+  }),
+  customer: one(customers, {
+    fields: [opportunities.customerId],
+    references: [customers.id],
+  }),
+  package: one(tourPackages, {
+    fields: [opportunities.packageId],
+    references: [tourPackages.id],
+  }),
+  event: one(events, {
+    fields: [opportunities.eventId],
+    references: [events.id],
+  }),
+  assignedTo: one(users, {
+    fields: [opportunities.assignedTo],
+    references: [users.id],
+  }),
+}));
+
+export const customerInteractionsRelations = relations(customerInteractions, ({ one }) => ({
+  customer: one(customers, {
+    fields: [customerInteractions.customerId],
+    references: [customers.id],
+  }),
+  booking: one(bookings, {
+    fields: [customerInteractions.bookingId],
+    references: [bookings.id],
+  }),
+  createdBy: one(users, {
+    fields: [customerInteractions.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const emailTemplatesRelations = relations(emailTemplates, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [emailTemplates.createdBy],
+    references: [users.id],
+  }),
+  campaigns: many(emailCampaigns),
+}));
+
+export const emailCampaignsRelations = relations(emailCampaigns, ({ one }) => ({
+  template: one(emailTemplates, {
+    fields: [emailCampaigns.templateId],
+    references: [emailTemplates.id],
+  }),
+  createdBy: one(users, {
+    fields: [emailCampaigns.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  assignedTo: one(users, {
+    fields: [tasks.assignedTo],
+    references: [users.id],
+  }),
+  createdBy: one(users, {
+    fields: [tasks.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const customerPreferencesRelations = relations(customerPreferences, ({ one }) => ({
+  customer: one(customers, {
+    fields: [customerPreferences.customerId],
+    references: [customers.id],
   }),
 }));
 
@@ -323,6 +612,17 @@ export const insertAvailabilitySchema = createInsertSchema(availability);
 export const insertTranslationSchema = createInsertSchema(translations);
 export const insertNewsletterSchema = createInsertSchema(newsletters);
 export const insertContactQuerySchema = createInsertSchema(contactQueries);
+
+// CRM Zod schemas
+export const insertCustomerSchema = createInsertSchema(customers);
+export const insertLeadSchema = createInsertSchema(leads);
+export const insertLeadActivitySchema = createInsertSchema(leadActivities);
+export const insertOpportunitySchema = createInsertSchema(opportunities);
+export const insertCustomerInteractionSchema = createInsertSchema(customerInteractions);
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
+export const insertEmailCampaignSchema = createInsertSchema(emailCampaigns);
+export const insertTaskSchema = createInsertSchema(tasks);
+export const insertCustomerPreferenceSchema = createInsertSchema(customerPreferences);
 
 export const validateTravelerSchema = insertTravelerSchema.omit({ bookingId: true });
 
@@ -359,4 +659,32 @@ export type Newsletter = typeof newsletters.$inferSelect;
 export type InsertNewsletter = z.infer<typeof insertNewsletterSchema>;
 
 export type ContactQuery = typeof contactQueries.$inferSelect;
-export type InsertContactQuery = z.infer<typeof insertContactQuerySchema>; 
+export type InsertContactQuery = z.infer<typeof insertContactQuerySchema>;
+
+// CRM Type exports
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+
+export type LeadActivity = typeof leadActivities.$inferSelect;
+export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
+
+export type Opportunity = typeof opportunities.$inferSelect;
+export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
+
+export type CustomerInteraction = typeof customerInteractions.$inferSelect;
+export type InsertCustomerInteraction = z.infer<typeof insertCustomerInteractionSchema>;
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+
+export type EmailCampaign = typeof emailCampaigns.$inferSelect;
+export type InsertEmailCampaign = z.infer<typeof insertEmailCampaignSchema>;
+
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+
+export type CustomerPreference = typeof customerPreferences.$inferSelect;
+export type InsertCustomerPreference = z.infer<typeof insertCustomerPreferenceSchema>; 
