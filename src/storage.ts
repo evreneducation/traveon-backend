@@ -10,6 +10,15 @@ import {
   availability,
   translations,
   contactQueries,
+  customers,
+  leads,
+  leadActivities,
+  opportunities,
+  customerInteractions,
+  emailTemplates,
+  emailCampaigns,
+  tasks,
+  customerPreferences,
   type User,
   type UpsertUser,
   type TourPackage,
@@ -32,6 +41,24 @@ import {
   type InsertNewsletter,
   type ContactQuery,
   type InsertContactQuery,
+  type Customer,
+  type InsertCustomer,
+  type Lead,
+  type InsertLead,
+  type LeadActivity,
+  type InsertLeadActivity,
+  type Opportunity,
+  type InsertOpportunity,
+  type CustomerInteraction,
+  type InsertCustomerInteraction,
+  type EmailTemplate,
+  type InsertEmailTemplate,
+  type EmailCampaign,
+  type InsertEmailCampaign,
+  type Task,
+  type InsertTask,
+  type CustomerPreference,
+  type InsertCustomerPreference,
 } from "./schema.js";
 import { db } from "./db.js";
 import { eq, and, or, like, gte, lte, desc, asc, count, sql } from "drizzle-orm";
@@ -129,6 +156,90 @@ export interface IStorage {
   createContactQuery(query: InsertContactQuery): Promise<ContactQuery>;
   updateContactQuery(id: number, query: Partial<InsertContactQuery>): Promise<ContactQuery | undefined>;
   deleteContactQuery(id: number): Promise<boolean>;
+  
+  // CRM: Customer operations
+  getCustomers(filters?: {
+    status?: string;
+    customerType?: string;
+    assignedTo?: string;
+    search?: string;
+  }): Promise<Customer[]>;
+  getCustomer(id: number): Promise<Customer | undefined>;
+  getCustomerByEmail(email: string): Promise<Customer | undefined>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
+  deleteCustomer(id: number): Promise<boolean>;
+  
+  // CRM: Lead operations
+  getLeads(filters?: {
+    status?: string;
+    priority?: string;
+    assignedTo?: string;
+    source?: string;
+    search?: string;
+  }): Promise<Lead[]>;
+  getLead(id: number): Promise<Lead | undefined>;
+  createLead(lead: InsertLead): Promise<Lead>;
+  updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined>;
+  deleteLead(id: number): Promise<boolean>;
+  
+  // CRM: Lead activity operations
+  getLeadActivities(leadId: number): Promise<LeadActivity[]>;
+  getLeadActivity(id: number): Promise<LeadActivity | undefined>;
+  createLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity>;
+  updateLeadActivity(id: number, activity: Partial<InsertLeadActivity>): Promise<LeadActivity | undefined>;
+  deleteLeadActivity(id: number): Promise<boolean>;
+  
+  // CRM: Opportunity operations
+  getOpportunities(filters?: {
+    stage?: string;
+    assignedTo?: string;
+    search?: string;
+  }): Promise<Opportunity[]>;
+  getOpportunity(id: number): Promise<Opportunity | undefined>;
+  createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity>;
+  updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined>;
+  deleteOpportunity(id: number): Promise<boolean>;
+  
+  // CRM: Customer interaction operations
+  getCustomerInteractions(customerId: number): Promise<CustomerInteraction[]>;
+  getCustomerInteraction(id: number): Promise<CustomerInteraction | undefined>;
+  createCustomerInteraction(interaction: InsertCustomerInteraction): Promise<CustomerInteraction>;
+  updateCustomerInteraction(id: number, interaction: Partial<InsertCustomerInteraction>): Promise<CustomerInteraction | undefined>;
+  deleteCustomerInteraction(id: number): Promise<boolean>;
+  
+  // CRM: Email template operations
+  getEmailTemplates(category?: string): Promise<EmailTemplate[]>;
+  getEmailTemplate(id: number): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
+  updateEmailTemplate(id: number, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  deleteEmailTemplate(id: number): Promise<boolean>;
+  
+  // CRM: Email campaign operations
+  getEmailCampaigns(status?: string): Promise<EmailCampaign[]>;
+  getEmailCampaign(id: number): Promise<EmailCampaign | undefined>;
+  createEmailCampaign(campaign: InsertEmailCampaign): Promise<EmailCampaign>;
+  updateEmailCampaign(id: number, campaign: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined>;
+  deleteEmailCampaign(id: number): Promise<boolean>;
+  
+  // CRM: Task operations
+  getTasks(filters?: {
+    status?: string;
+    priority?: string;
+    assignedTo?: string;
+    type?: string;
+  }): Promise<Task[]>;
+  getTask(id: number): Promise<Task | undefined>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: number, task: Partial<InsertTask>): Promise<Task | undefined>;
+  deleteTask(id: number): Promise<boolean>;
+  
+  // CRM: Customer preference operations
+  getCustomerPreferences(customerId: number, category?: string): Promise<CustomerPreference[]>;
+  getCustomerPreference(id: number): Promise<CustomerPreference | undefined>;
+  createCustomerPreference(preference: InsertCustomerPreference): Promise<CustomerPreference>;
+  updateCustomerPreference(id: number, preference: Partial<InsertCustomerPreference>): Promise<CustomerPreference | undefined>;
+  deleteCustomerPreference(id: number): Promise<boolean>;
   
   // Real-time availability
   checkAvailability(packageId: number, eventId: number, date: Date, slots: number): Promise<boolean>;
@@ -739,6 +850,634 @@ export class DatabaseStorage implements IStorage {
     
     // Note: Events don't have rating fields in the current schema
     // You might want to add rating and reviewCount fields to the events table
+  }
+
+  // CRM: Customer operations
+  async getCustomers(filters?: {
+    status?: string;
+    customerType?: string;
+    assignedTo?: string;
+    search?: string;
+  }): Promise<Customer[]> {
+    try {
+      let query = db.select().from(customers);
+      const conditions = [];
+
+      if (filters?.status) {
+        conditions.push(eq(customers.status, filters.status));
+      }
+      if (filters?.customerType) {
+        conditions.push(eq(customers.customerType, filters.customerType));
+      }
+      if (filters?.assignedTo) {
+        conditions.push(eq(customers.assignedTo, filters.assignedTo));
+      }
+      if (filters?.search) {
+        conditions.push(
+          or(
+            like(customers.firstName, `%${filters.search}%`),
+            like(customers.lastName, `%${filters.search}%`),
+            like(customers.email, `%${filters.search}%`)
+          )
+        );
+      }
+
+      if (conditions.length > 0) {
+        query = withWhere(query, and(...conditions));
+      }
+
+      return await query.orderBy(desc(customers.createdAt));
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+      throw error;
+    }
+  }
+
+  async getCustomer(id: number): Promise<Customer | undefined> {
+    try {
+      const result = await db.select().from(customers).where(eq(customers.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching customer:", error);
+      throw error;
+    }
+  }
+
+  async getCustomerByEmail(email: string): Promise<Customer | undefined> {
+    try {
+      const result = await db.select().from(customers).where(eq(customers.email, email));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching customer by email:", error);
+      throw error;
+    }
+  }
+
+  async createCustomer(customerData: InsertCustomer): Promise<Customer> {
+    try {
+      const result = await db.insert(customers).values(customerData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating customer:", error);
+      throw error;
+    }
+  }
+
+  async updateCustomer(id: number, customerData: Partial<InsertCustomer>): Promise<Customer | undefined> {
+    try {
+      const result = await db.update(customers)
+        .set({ ...customerData, updatedAt: new Date() })
+        .where(eq(customers.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating customer:", error);
+      throw error;
+    }
+  }
+
+  async deleteCustomer(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(customers).where(eq(customers.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Lead operations
+  async getLeads(filters?: {
+    status?: string;
+    priority?: string;
+    assignedTo?: string;
+    source?: string;
+    search?: string;
+  }): Promise<Lead[]> {
+    try {
+      let query = db.select().from(leads);
+      const conditions = [];
+
+      if (filters?.status) {
+        conditions.push(eq(leads.status, filters.status));
+      }
+      if (filters?.priority) {
+        conditions.push(eq(leads.priority, filters.priority));
+      }
+      if (filters?.assignedTo) {
+        conditions.push(eq(leads.assignedTo, filters.assignedTo));
+      }
+      if (filters?.source) {
+        conditions.push(eq(leads.source, filters.source));
+      }
+      if (filters?.search) {
+        conditions.push(
+          or(
+            like(leads.firstName, `%${filters.search}%`),
+            like(leads.lastName, `%${filters.search}%`),
+            like(leads.email, `%${filters.search}%`),
+            like(leads.company, `%${filters.search}%`)
+          )
+        );
+      }
+
+      if (conditions.length > 0) {
+        query = withWhere(query, and(...conditions));
+      }
+
+      return await query.orderBy(desc(leads.createdAt));
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      throw error;
+    }
+  }
+
+  async getLead(id: number): Promise<Lead | undefined> {
+    try {
+      const result = await db.select().from(leads).where(eq(leads.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching lead:", error);
+      throw error;
+    }
+  }
+
+  async createLead(leadData: InsertLead): Promise<Lead> {
+    try {
+      const result = await db.insert(leads).values(leadData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating lead:", error);
+      throw error;
+    }
+  }
+
+  async updateLead(id: number, leadData: Partial<InsertLead>): Promise<Lead | undefined> {
+    try {
+      const result = await db.update(leads)
+        .set({ ...leadData, updatedAt: new Date() })
+        .where(eq(leads.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      throw error;
+    }
+  }
+
+  async deleteLead(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(leads).where(eq(leads.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting lead:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Lead activity operations
+  async getLeadActivities(leadId: number): Promise<LeadActivity[]> {
+    try {
+      return await db.select().from(leadActivities)
+        .where(eq(leadActivities.leadId, leadId))
+        .orderBy(desc(leadActivities.createdAt));
+    } catch (error) {
+      console.error("Error fetching lead activities:", error);
+      throw error;
+    }
+  }
+
+  async getLeadActivity(id: number): Promise<LeadActivity | undefined> {
+    try {
+      const result = await db.select().from(leadActivities).where(eq(leadActivities.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching lead activity:", error);
+      throw error;
+    }
+  }
+
+  async createLeadActivity(activityData: InsertLeadActivity): Promise<LeadActivity> {
+    try {
+      const result = await db.insert(leadActivities).values(activityData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating lead activity:", error);
+      throw error;
+    }
+  }
+
+  async updateLeadActivity(id: number, activityData: Partial<InsertLeadActivity>): Promise<LeadActivity | undefined> {
+    try {
+      const result = await db.update(leadActivities)
+        .set({ ...activityData, updatedAt: new Date() })
+        .where(eq(leadActivities.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating lead activity:", error);
+      throw error;
+    }
+  }
+
+  async deleteLeadActivity(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(leadActivities).where(eq(leadActivities.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting lead activity:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Opportunity operations
+  async getOpportunities(filters?: {
+    stage?: string;
+    assignedTo?: string;
+    search?: string;
+  }): Promise<Opportunity[]> {
+    try {
+      let query = db.select().from(opportunities);
+      const conditions = [];
+
+      if (filters?.stage) {
+        conditions.push(eq(opportunities.stage, filters.stage));
+      }
+      if (filters?.assignedTo) {
+        conditions.push(eq(opportunities.assignedTo, filters.assignedTo));
+      }
+      if (filters?.search) {
+        conditions.push(
+          or(
+            like(opportunities.title, `%${filters.search}%`),
+            like(opportunities.description, `%${filters.search}%`)
+          )
+        );
+      }
+
+      if (conditions.length > 0) {
+        query = withWhere(query, and(...conditions));
+      }
+
+      return await query.orderBy(desc(opportunities.createdAt));
+    } catch (error) {
+      console.error("Error fetching opportunities:", error);
+      throw error;
+    }
+  }
+
+  async getOpportunity(id: number): Promise<Opportunity | undefined> {
+    try {
+      const result = await db.select().from(opportunities).where(eq(opportunities.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching opportunity:", error);
+      throw error;
+    }
+  }
+
+  async createOpportunity(opportunityData: InsertOpportunity): Promise<Opportunity> {
+    try {
+      const result = await db.insert(opportunities).values(opportunityData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating opportunity:", error);
+      throw error;
+    }
+  }
+
+  async updateOpportunity(id: number, opportunityData: Partial<InsertOpportunity>): Promise<Opportunity | undefined> {
+    try {
+      const result = await db.update(opportunities)
+        .set({ ...opportunityData, updatedAt: new Date() })
+        .where(eq(opportunities.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating opportunity:", error);
+      throw error;
+    }
+  }
+
+  async deleteOpportunity(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(opportunities).where(eq(opportunities.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting opportunity:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Customer interaction operations
+  async getCustomerInteractions(customerId: number): Promise<CustomerInteraction[]> {
+    try {
+      return await db.select().from(customerInteractions)
+        .where(eq(customerInteractions.customerId, customerId))
+        .orderBy(desc(customerInteractions.createdAt));
+    } catch (error) {
+      console.error("Error fetching customer interactions:", error);
+      throw error;
+    }
+  }
+
+  async getCustomerInteraction(id: number): Promise<CustomerInteraction | undefined> {
+    try {
+      const result = await db.select().from(customerInteractions).where(eq(customerInteractions.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching customer interaction:", error);
+      throw error;
+    }
+  }
+
+  async createCustomerInteraction(interactionData: InsertCustomerInteraction): Promise<CustomerInteraction> {
+    try {
+      const result = await db.insert(customerInteractions).values(interactionData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating customer interaction:", error);
+      throw error;
+    }
+  }
+
+  async updateCustomerInteraction(id: number, interactionData: Partial<InsertCustomerInteraction>): Promise<CustomerInteraction | undefined> {
+    try {
+      const result = await db.update(customerInteractions)
+        .set({ ...interactionData, updatedAt: new Date() })
+        .where(eq(customerInteractions.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating customer interaction:", error);
+      throw error;
+    }
+  }
+
+  async deleteCustomerInteraction(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(customerInteractions).where(eq(customerInteractions.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting customer interaction:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Email template operations
+  async getEmailTemplates(category?: string): Promise<EmailTemplate[]> {
+    try {
+      let query = db.select().from(emailTemplates);
+      
+      if (category) {
+        query = withWhere(query, eq(emailTemplates.category, category));
+      }
+
+      return await query.orderBy(desc(emailTemplates.createdAt));
+    } catch (error) {
+      console.error("Error fetching email templates:", error);
+      throw error;
+    }
+  }
+
+  async getEmailTemplate(id: number): Promise<EmailTemplate | undefined> {
+    try {
+      const result = await db.select().from(emailTemplates).where(eq(emailTemplates.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching email template:", error);
+      throw error;
+    }
+  }
+
+  async createEmailTemplate(templateData: InsertEmailTemplate): Promise<EmailTemplate> {
+    try {
+      const result = await db.insert(emailTemplates).values(templateData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating email template:", error);
+      throw error;
+    }
+  }
+
+  async updateEmailTemplate(id: number, templateData: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    try {
+      const result = await db.update(emailTemplates)
+        .set({ ...templateData, updatedAt: new Date() })
+        .where(eq(emailTemplates.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating email template:", error);
+      throw error;
+    }
+  }
+
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(emailTemplates).where(eq(emailTemplates.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting email template:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Email campaign operations
+  async getEmailCampaigns(status?: string): Promise<EmailCampaign[]> {
+    try {
+      let query = db.select().from(emailCampaigns);
+      
+      if (status) {
+        query = withWhere(query, eq(emailCampaigns.status, status));
+      }
+
+      return await query.orderBy(desc(emailCampaigns.createdAt));
+    } catch (error) {
+      console.error("Error fetching email campaigns:", error);
+      throw error;
+    }
+  }
+
+  async getEmailCampaign(id: number): Promise<EmailCampaign | undefined> {
+    try {
+      const result = await db.select().from(emailCampaigns).where(eq(emailCampaigns.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching email campaign:", error);
+      throw error;
+    }
+  }
+
+  async createEmailCampaign(campaignData: InsertEmailCampaign): Promise<EmailCampaign> {
+    try {
+      const result = await db.insert(emailCampaigns).values(campaignData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating email campaign:", error);
+      throw error;
+    }
+  }
+
+  async updateEmailCampaign(id: number, campaignData: Partial<InsertEmailCampaign>): Promise<EmailCampaign | undefined> {
+    try {
+      const result = await db.update(emailCampaigns)
+        .set({ ...campaignData, updatedAt: new Date() })
+        .where(eq(emailCampaigns.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating email campaign:", error);
+      throw error;
+    }
+  }
+
+  async deleteEmailCampaign(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(emailCampaigns).where(eq(emailCampaigns.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting email campaign:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Task operations
+  async getTasks(filters?: {
+    status?: string;
+    priority?: string;
+    assignedTo?: string;
+    type?: string;
+  }): Promise<Task[]> {
+    try {
+      let query = db.select().from(tasks);
+      const conditions = [];
+
+      if (filters?.status) {
+        conditions.push(eq(tasks.status, filters.status));
+      }
+      if (filters?.priority) {
+        conditions.push(eq(tasks.priority, filters.priority));
+      }
+      if (filters?.assignedTo) {
+        conditions.push(eq(tasks.assignedTo, filters.assignedTo));
+      }
+      if (filters?.type) {
+        conditions.push(eq(tasks.type, filters.type));
+      }
+
+      if (conditions.length > 0) {
+        query = withWhere(query, and(...conditions));
+      }
+
+      return await query.orderBy(asc(tasks.dueDate), desc(tasks.createdAt));
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+      throw error;
+    }
+  }
+
+  async getTask(id: number): Promise<Task | undefined> {
+    try {
+      const result = await db.select().from(tasks).where(eq(tasks.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching task:", error);
+      throw error;
+    }
+  }
+
+  async createTask(taskData: InsertTask): Promise<Task> {
+    try {
+      const result = await db.insert(tasks).values(taskData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating task:", error);
+      throw error;
+    }
+  }
+
+  async updateTask(id: number, taskData: Partial<InsertTask>): Promise<Task | undefined> {
+    try {
+      const result = await db.update(tasks)
+        .set({ ...taskData, updatedAt: new Date() })
+        .where(eq(tasks.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating task:", error);
+      throw error;
+    }
+  }
+
+  async deleteTask(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(tasks).where(eq(tasks.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      throw error;
+    }
+  }
+
+  // CRM: Customer preference operations
+  async getCustomerPreferences(customerId: number, category?: string): Promise<CustomerPreference[]> {
+    try {
+      let query = db.select().from(customerPreferences)
+        .where(eq(customerPreferences.customerId, customerId));
+      
+      if (category) {
+        query = withWhere(query, eq(customerPreferences.category, category));
+      }
+
+      return await query.orderBy(asc(customerPreferences.category));
+    } catch (error) {
+      console.error("Error fetching customer preferences:", error);
+      throw error;
+    }
+  }
+
+  async getCustomerPreference(id: number): Promise<CustomerPreference | undefined> {
+    try {
+      const result = await db.select().from(customerPreferences).where(eq(customerPreferences.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error fetching customer preference:", error);
+      throw error;
+    }
+  }
+
+  async createCustomerPreference(preferenceData: InsertCustomerPreference): Promise<CustomerPreference> {
+    try {
+      const result = await db.insert(customerPreferences).values(preferenceData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating customer preference:", error);
+      throw error;
+    }
+  }
+
+  async updateCustomerPreference(id: number, preferenceData: Partial<InsertCustomerPreference>): Promise<CustomerPreference | undefined> {
+    try {
+      const result = await db.update(customerPreferences)
+        .set({ ...preferenceData, updatedAt: new Date() })
+        .where(eq(customerPreferences.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating customer preference:", error);
+      throw error;
+    }
+  }
+
+  async deleteCustomerPreference(id: number): Promise<boolean> {
+    try {
+      const result = await db.delete(customerPreferences).where(eq(customerPreferences.id, id));
+      return (result.rowCount && result.rowCount > 0) as boolean;
+    } catch (error) {
+      console.error("Error deleting customer preference:", error);
+      throw error;
+    }
   }
 }
 
