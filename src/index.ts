@@ -40,6 +40,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5174",
   "https://traveon.vercel.app",
+  "https://traveon.in",
 ];
 app.use(
   cors({
