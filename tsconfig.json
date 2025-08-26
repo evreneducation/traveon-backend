@@ -19,6 +19,7 @@
         "name": "@typescript-eslint"
       }
     ],
+    "tsBuildInfoFile": "./.tsbuildcache/tsconfig.tsbuildinfo",
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
@@ -27,4 +28,5 @@
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
+
 } 
